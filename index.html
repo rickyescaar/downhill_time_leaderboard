@@ -785,7 +785,7 @@
         appendCell(tr, formatClockTime(item.endTimeMillis));
         appendCell(tr, didNotFinish ? 'NOT FINISHED' : formatTime(item.durationMs), 'time-cell');
         appendCell(tr, gap, 'gap-cell');
-        appendCell(tr, didNotFinish ? 'RACE FAILED' : 'OK / FINISH');
+        appendCell(tr, didNotFinish ? 'RACE FAILED' : 'FINISHED');
         tableBodyEl.appendChild(tr);
       });
 
