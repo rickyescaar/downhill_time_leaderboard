@@ -495,7 +495,7 @@
       <div>TRACK: <span style="color:var(--text-main); font-weight:700;">SECTOR 1</span></div>
       <div class="status-pill">
         <span id="connDot" class="status-dot"></span>
-        <span id="connStatus">ESP32 Offline (Sim Mode)</span>
+        <span id="connStatus">OFFLINE / RECONNECTING...</span>
       </div>
       <div id="clockDisplay" style="color:var(--text-muted)">00:00:00</div>
     </div>
@@ -999,51 +999,84 @@
       window.URL.revokeObjectURL(url);
     });
 
+    let esp32Socket = null;
+    let esp32ReconnectTimer = null;
+
+    function setESP32Offline() {
+      connDotEl.classList.remove('connected');
+      connStatusEl.textContent = 'OFFLINE / RECONNECTING...';
+    }
+
+    function scheduleESP32Reconnect() {
+      if (esp32ReconnectTimer !== null) return;
+      setESP32Offline();
+      esp32ReconnectTimer = setTimeout(() => {
+        esp32ReconnectTimer = null;
+        initESP32WebSocket();
+      }, 3000);
+    }
+
     function initESP32WebSocket() {
-      const gateway = `ws://${window.location.hostname}:81/`;
-      let socket = null;
+      if (esp32Socket && (
+        esp32Socket.readyState === WebSocket.CONNECTING ||
+        esp32Socket.readyState === WebSocket.OPEN
+      )) return;
+
+      setESP32Offline();
+      const host = window.location.hostname || '192.168.4.1';
+      const gateway = `ws://${host}:81/`;
 
       try {
-        socket = new WebSocket(gateway);
+        const socket = new WebSocket(gateway);
+        esp32Socket = socket;
+
         socket.onopen = () => {
+          if (esp32Socket !== socket) return;
           connDotEl.classList.add('connected');
-          connStatusEl.textContent = "ESP32 Live Connected";
+          connStatusEl.textContent = 'ESP32 CONNECTED';
         };
 
         socket.onclose = () => {
-          connDotEl.classList.remove('connected');
-          connStatusEl.textContent = "ESP32 Offline (Sim Mode)";
-          // Attempt retry connection every 5s
-          setTimeout(initESP32WebSocket, 5000);
+          if (esp32Socket !== socket) return;
+          esp32Socket = null;
+          scheduleESP32Reconnect();
+        };
+
+        socket.onerror = () => {
+          if (esp32Socket !== socket) return;
+          setESP32Offline();
+          try {
+            socket.close();
+          } catch (error) {
+            console.error('WebSocket close error:', error);
+          }
+          if (esp32Socket === socket) esp32Socket = null;
+          scheduleESP32Reconnect();
         };
 
         socket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            if (data.event === "START") {
+            if (data.event === 'START') {
               triggerStartRider(data.time ?? data.startTime);
-            } else if (data.event === "FINISH") {
+            } else if (data.event === 'FINISH') {
               triggerFinishRider(data.duration, data.time ?? data.endTime ?? null);
             }
-          } catch (e) {
-            console.error("JSON parse error:", e);
+          } catch (error) {
+            console.error('JSON parse error:', error);
           }
         };
-      } catch (err) {
-        // Fallback gracefully to offline sim mode
-        connDotEl.classList.remove('connected');
-        connStatusEl.textContent = "ESP32 Offline (Sim Mode)";
+      } catch (error) {
+        console.error('WebSocket connection error:', error);
+        esp32Socket = null;
+        scheduleESP32Reconnect();
       }
     }
 
     renderParticipants();
     updateLeaderboard();
 
-    window.addEventListener('load', () => {
-      if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '') {
-        initESP32WebSocket();
-      }
-    });
+    window.addEventListener('load', initESP32WebSocket);
   </script>
 </body>
 </html>
