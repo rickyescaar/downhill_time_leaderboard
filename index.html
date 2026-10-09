@@ -318,6 +318,119 @@
       gap: 0.75rem;
     }
 
+    .rider-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      width: 100%;
+    }
+
+    .rider-form input,
+    .confirm-dialog input {
+      min-width: 0;
+      flex: 1;
+      padding: 0.65rem 0.75rem;
+      color: var(--text-main);
+      background: #090b10;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      font: inherit;
+    }
+
+    .next-rider,
+    .roster-panel {
+      background: var(--bg-card-alt);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+    }
+
+    .next-rider-label,
+    .roster-title {
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .next-rider-name {
+      margin-top: 0.3rem;
+      font-weight: 700;
+    }
+
+    .roster-list {
+      display: grid;
+      gap: 0.4rem;
+      list-style: none;
+      margin-top: 0.65rem;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+
+    .roster-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      color: var(--text-main);
+      font-size: 0.85rem;
+    }
+
+    .roster-status {
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .delete-record-btn {
+      padding: 0.4rem 0.55rem;
+      color: var(--accent-red);
+      background: rgba(255, 51, 102, 0.12);
+      border: 1px solid var(--accent-red);
+      border-radius: 5px;
+      font: inherit;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+      transform: none;
+    }
+
+    .confirm-dialog {
+      width: min(420px, calc(100% - 2rem));
+      margin: auto;
+      padding: 1.25rem;
+      color: var(--text-main);
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+    }
+
+    .confirm-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.72);
+    }
+
+    .confirm-dialog p {
+      margin: 0.65rem 0 1rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .confirm-error {
+      min-height: 1.2rem;
+      margin-top: 0.45rem;
+      color: var(--accent-red);
+      font-size: 0.8rem;
+    }
+
+    .confirm-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
     .btn {
       background: var(--border-color);
       color: var(--text-main);
@@ -401,22 +514,38 @@
         </div>
       </div>
 
+      <div class="next-rider">
+        <div class="next-rider-label">Next Rider</div>
+        <div class="next-rider-name" id="nextRiderName">Belum ada rider dalam antrean</div>
+      </div>
+
+      <div class="roster-panel">
+        <div class="roster-title">Daftar Rider</div>
+        <ul class="roster-list" id="riderList">
+          <li><span>Belum ada rider.</span></li>
+        </ul>
+      </div>
+
       <div class="live-timer-container">
         <div class="live-timer" id="runningTimer">00:00.000</div>
         <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.4rem; font-family:var(--font-mono);">
-          GPS SYNC TIMER
+          RACE TIMER
         </div>
       </div>
 
       <!-- Offline Simulation Controls for Local Testing -->
       <div class="sim-panel">
         <div style="width:100%; font-size:0.75rem; color:var(--text-muted); font-weight:700;">
-          SIMULATOR TESTING (Gunakan ini sebelum hardware siap):
+          RIDER & SIMULATOR CONTROLS
         </div>
-        <button class="btn btn-start" id="btnSimStart">Trigger Start Radar</button>
-        <button class="btn btn-finish" id="btnSimFinish">Trigger Finish Radar</button>
-        <button class="btn btn-reset" id="btnSimReset">Clear All</button>
-        <button class="btn" id="btnExportCsv">Export CSV</button>
+        <form class="rider-form" id="riderForm">
+          <input id="riderNameInput" type="text" maxlength="80" placeholder="Nama rider" aria-label="Nama rider" required>
+          <button class="btn btn-start" type="submit">Add User</button>
+        </form>
+        <button class="btn btn-start" id="btnSimStart" type="button">Trigger Start Radar</button>
+        <button class="btn btn-finish" id="btnSimFinish" type="button">Trigger Finish Radar</button>
+        <button class="btn btn-reset" id="btnSimReset" type="button">Clear All</button>
+        <button class="btn" id="btnExportCsv" type="button">Export to CSV</button>
       </div>
     </div>
 
@@ -435,14 +564,17 @@
               <th>Bib #</th>
               <th>Rider Name</th>
               <th>Category</th>
+              <th>Start Time</th>
+              <th>End Time</th>
               <th>Time</th>
               <th>Gap</th>
               <th>Status</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody id="tableBody">
             <tr>
-              <td colspan="7" class="empty-state">Belum ada pembalap yang menyelesaikan race.</td>
+              <td colspan="10" class="empty-state">Belum ada pembalap yang menyelesaikan race.</td>
             </tr>
           </tbody>
         </table>
@@ -450,20 +582,29 @@
     </div>
   </div>
 
+  <dialog class="confirm-dialog" id="confirmDialog" aria-labelledby="confirmTitle">
+    <form id="confirmForm">
+      <h2 id="confirmTitle">Konfirmasi penghapusan</h2>
+      <p id="confirmMessage">Ketik HAPUS untuk melanjutkan.</p>
+      <input id="confirmInput" type="text" autocomplete="off" placeholder="Ketik HAPUS" aria-label="Ketik HAPUS untuk konfirmasi">
+      <div class="confirm-error" id="confirmError" aria-live="polite"></div>
+      <div class="confirm-actions">
+        <button class="btn" id="btnCancelDelete" type="button">Batal</button>
+        <button class="btn btn-reset" type="submit">Hapus</button>
+      </div>
+    </form>
+  </dialog>
+
   <script>
-    // State management
+    // Race state
+    let participants = [];
     let ridersData = [];
     let currentRider = null;
     let timerInterval = null;
-    let startTimeMillis = 0;
+    let startTimeMillis = null;
     let nextBibSequence = 101;
+    let pendingDelete = null;
 
-    const sampleRiderNames = [
-      "Rafi Pratama", "Dimas Setiawan", "Budi Santoso", 
-      "Reza Pahlevi", "Fajar Ramadhan", "Agus Firmansyah"
-    ];
-
-    // DOM Elements
     const runningTimerEl = document.getElementById('runningTimer');
     const currentBibEl = document.getElementById('currentBib');
     const currentNameEl = document.getElementById('currentName');
@@ -471,9 +612,18 @@
     const liveBadgeEl = document.getElementById('liveBadge');
     const tableBodyEl = document.getElementById('tableBody');
     const totalFinishedEl = document.getElementById('totalFinished');
+    const nextRiderNameEl = document.getElementById('nextRiderName');
+    const riderListEl = document.getElementById('riderList');
     const clockDisplayEl = document.getElementById('clockDisplay');
     const connDotEl = document.getElementById('connDot');
     const connStatusEl = document.getElementById('connStatus');
+    const btnSimStartEl = document.getElementById('btnSimStart');
+    const btnSimFinishEl = document.getElementById('btnSimFinish');
+    const btnExportCsvEl = document.getElementById('btnExportCsv');
+    const confirmDialogEl = document.getElementById('confirmDialog');
+    const confirmFormEl = document.getElementById('confirmForm');
+    const confirmInputEl = document.getElementById('confirmInput');
+    const confirmErrorEl = document.getElementById('confirmError');
 
     function updateClock() {
       const now = new Date();
@@ -481,6 +631,21 @@
     }
     setInterval(updateClock, 1000);
     updateClock();
+
+    function normalizeEpoch(value, fallback = Date.now()) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value < 1000000000000 ? value * 1000 : value;
+      }
+      if (typeof value === 'string' && value.trim() !== '') {
+        const numericValue = Number(value);
+        if (Number.isFinite(numericValue)) {
+          return numericValue < 1000000000000 ? numericValue * 1000 : numericValue;
+        }
+        const parsedValue = Date.parse(value);
+        if (Number.isFinite(parsedValue)) return parsedValue;
+      }
+      return fallback;
+    }
 
     function formatTime(durationMs) {
       if (durationMs < 0 || isNaN(durationMs)) return "00:00.000";
@@ -495,9 +660,54 @@
       return `${mm}:${ss}.${mmm}`;
     }
 
+    function formatTimestamp(epochMs) {
+      if (!Number.isFinite(epochMs)) return "--";
+      return new Date(epochMs).toLocaleString('id-ID', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      });
+    }
+
+    function renderParticipants() {
+      const nextRider = participants.find((rider) => rider.status === 'waiting');
+      nextRiderNameEl.textContent = nextRider
+        ? `${nextRider.bib} - ${nextRider.name}`
+        : 'Belum ada rider dalam antrean';
+
+      riderListEl.replaceChildren();
+      if (participants.length === 0) {
+        const emptyItem = document.createElement('li');
+        emptyItem.textContent = 'Belum ada rider.';
+        riderListEl.appendChild(emptyItem);
+      } else {
+        participants.forEach((rider) => {
+          const item = document.createElement('li');
+          const identity = document.createElement('span');
+          const status = document.createElement('span');
+          identity.textContent = `${rider.bib} - ${rider.name}`;
+          status.className = 'roster-status';
+          status.textContent = rider.status === 'waiting'
+            ? 'Menunggu'
+            : rider.status === 'racing' ? 'Sedang race' : 'Selesai';
+          item.append(identity, status);
+          riderListEl.appendChild(item);
+        });
+      }
+
+      updateControls();
+    }
+
+    function updateControls() {
+      const hasNextRider = participants.some((rider) => rider.status === 'waiting');
+      btnSimStartEl.disabled = Boolean(currentRider) || !hasNextRider;
+      btnSimFinishEl.disabled = !currentRider;
+      btnExportCsvEl.disabled = ridersData.length === 0;
+    }
+
     function startLiveStopwatch(startEpoch) {
       startTimeMillis = startEpoch;
       clearInterval(timerInterval);
+      runningTimerEl.textContent = formatTime(Date.now() - startTimeMillis);
 
       liveBadgeEl.textContent = "ON TRACK";
       liveBadgeEl.className = "live-state-badge racing";
@@ -513,20 +723,28 @@
       timerInterval = null;
       liveBadgeEl.textContent = "FINISHED";
       liveBadgeEl.className = "live-state-badge standby";
+      renderParticipants();
     }
 
     function updateLeaderboard() {
       if (ridersData.length === 0) {
-        tableBodyEl.innerHTML = `<tr><td colspan="7" class="empty-state">Belum ada pembalap yang menyelesaikan race.</td></tr>`;
+        tableBodyEl.replaceChildren();
+        const emptyRow = document.createElement('tr');
+        const emptyCell = document.createElement('td');
+        emptyCell.colSpan = 10;
+        emptyCell.className = 'empty-state';
+        emptyCell.textContent = 'Belum ada pembalap yang menyelesaikan race.';
+        emptyRow.appendChild(emptyCell);
+        tableBodyEl.appendChild(emptyRow);
         totalFinishedEl.textContent = "0 Finisher";
+        updateControls();
         return;
       }
 
-      // Sort by fastest duration
       ridersData.sort((a, b) => a.durationMs - b.durationMs);
 
       const fastestTime = ridersData[0].durationMs;
-      tableBodyEl.innerHTML = "";
+      tableBodyEl.replaceChildren();
 
       ridersData.forEach((item, index) => {
         const rank = index + 1;
@@ -537,46 +755,86 @@
         else if (rank === 3) rankClass += " rank-3";
 
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="${rankClass}">#${rank}</td>
-          <td style="font-family:var(--font-mono); font-weight:700;">${item.bib}</td>
-          <td style="font-weight:600;">${item.name}</td>
-          <td style="color:var(--text-muted); font-size:0.85rem;">${item.category}</td>
-          <td class="time-cell">${formatTime(item.durationMs)}</td>
-          <td class="gap-cell">${gap}</td>
-          <td><span style="color:var(--accent-green); font-size:0.75rem; font-weight:700;">OK / FINISH</span></td>
-        `;
+        appendCell(tr, `#${rank}`, rankClass);
+        appendCell(tr, item.bib);
+        appendCell(tr, item.name);
+        appendCell(tr, item.category);
+        appendCell(tr, formatTimestamp(item.startTimeMillis));
+        appendCell(tr, formatTimestamp(item.endTimeMillis));
+        appendCell(tr, formatTime(item.durationMs), 'time-cell');
+        appendCell(tr, gap, 'gap-cell');
+        appendCell(tr, 'OK / FINISH');
+
+        const actionCell = document.createElement('td');
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'delete-record-btn';
+        deleteButton.textContent = 'Hapus';
+        deleteButton.setAttribute('aria-label', `Hapus hasil ${item.name}`);
+        deleteButton.addEventListener('click', () => openDeleteConfirmation(item.recordId));
+        actionCell.appendChild(deleteButton);
+        tr.appendChild(actionCell);
         tableBodyEl.appendChild(tr);
       });
 
       totalFinishedEl.textContent = `${ridersData.length} Finisher`;
+      updateControls();
     }
 
-    function triggerStartRider(bib, name, category) {
+    function appendCell(row, value, className = '') {
+      const cell = document.createElement('td');
+      if (className) cell.className = className;
+      cell.textContent = value;
+      row.appendChild(cell);
+      return cell;
+    }
+
+    function triggerStartRider(startEpoch = Date.now()) {
+      if (currentRider) return false;
+      const participant = participants.find((rider) => rider.status === 'waiting');
+      if (!participant) return false;
+
+      participant.status = 'racing';
       currentRider = {
-        bib: bib || `#${nextBibSequence++}`,
-        name: name || sampleRiderNames[Math.floor(Math.random() * sampleRiderNames.length)],
-        category: category || "Men Elite Downhill",
-        startTime: Date.now()
+        bib: participant.bib,
+        name: participant.name,
+        category: participant.category,
+        participantId: participant.id,
+        startTimeMillis: normalizeEpoch(startEpoch)
       };
 
       currentBibEl.textContent = currentRider.bib;
       currentNameEl.textContent = currentRider.name;
       currentCatEl.textContent = currentRider.category;
 
-      startLiveStopwatch(currentRider.startTime);
+      startLiveStopwatch(currentRider.startTimeMillis);
+      renderParticipants();
+      return true;
     }
 
-    function triggerFinishRider(customDurationMs = null) {
-      if (!currentRider) return;
+    function triggerFinishRider(customDurationMs = null, finishEpoch = null) {
+      if (!currentRider) return false;
 
-      const finishTime = Date.now();
-      const durationMs = customDurationMs || (finishTime - currentRider.startTime);
+      const endTimeMillis = finishEpoch !== null
+        ? normalizeEpoch(finishEpoch)
+        : null;
+      const suppliedDuration = Number(customDurationMs);
+      const durationMs = customDurationMs !== null && Number.isFinite(suppliedDuration)
+        ? suppliedDuration
+        : endTimeMillis !== null
+          ? endTimeMillis - currentRider.startTimeMillis
+          : Date.now() - currentRider.startTimeMillis;
+      const resolvedEndTimeMillis = endTimeMillis ?? currentRider.startTimeMillis + durationMs;
+      const participant = participants.find((rider) => rider.id === currentRider.participantId);
+      if (participant) participant.status = 'finished';
 
       ridersData.push({
+        recordId: `${currentRider.participantId}-${Date.now()}-${Math.random()}`,
         bib: currentRider.bib,
         name: currentRider.name,
         category: currentRider.category,
+        startTimeMillis: currentRider.startTimeMillis,
+        endTimeMillis: resolvedEndTimeMillis,
         durationMs: durationMs
       });
 
@@ -585,41 +843,126 @@
       updateLeaderboard();
 
       currentRider = null;
+      updateControls();
+      return true;
     }
 
-    document.getElementById('btnSimStart').addEventListener('click', () => {
+    document.getElementById('riderForm').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const riderNameInput = document.getElementById('riderNameInput');
+      const name = riderNameInput.value.trim();
+      if (!name) return;
+
+      participants.push({
+        id: `rider-${Date.now()}-${nextBibSequence}`,
+        bib: `#${nextBibSequence++}`,
+        name,
+        category: 'Men Elite Downhill',
+        status: 'waiting'
+      });
+      riderNameInput.value = '';
+      renderParticipants();
+      riderNameInput.focus();
+    });
+
+    btnSimStartEl.addEventListener('click', () => {
       triggerStartRider();
     });
 
-    document.getElementById('btnSimFinish').addEventListener('click', () => {
-      if (!currentRider) {
-        // If not started yet, trigger quick dummy run (2m15s - 2m45s)
-        triggerStartRider();
-      }
-      // Generate realistic DH lap time: 2 mins + 10-40 secs
-      const simulatedLapMs = (120 + Math.random() * 30) * 1000;
-      triggerFinishRider(simulatedLapMs);
+    btnSimFinishEl.addEventListener('click', () => {
+      triggerFinishRider();
     });
 
-    document.getElementById('btnSimReset').addEventListener('click', () => {
+    function clearAllData() {
+      participants = [];
       ridersData = [];
       currentRider = null;
-      stopLiveStopwatch();
+      nextBibSequence = 101;
+      clearInterval(timerInterval);
+      timerInterval = null;
+      startTimeMillis = null;
       runningTimerEl.textContent = "00:00.000";
       currentBibEl.textContent = "--";
       currentNameEl.textContent = "Garis Start Kosong";
+      currentCatEl.textContent = "Men Elite Downhill";
       liveBadgeEl.textContent = "STANDBY";
       liveBadgeEl.className = "live-state-badge standby";
+      renderParticipants();
       updateLeaderboard();
+    }
+
+    function openDeleteConfirmation(recordId) {
+      pendingDelete = { type: 'record', recordId };
+      document.getElementById('confirmTitle').textContent = 'Hapus hasil race?';
+      document.getElementById('confirmMessage').textContent = 'Ketik HAPUS untuk menghapus satu row hasil ini.';
+      showConfirmationDialog();
+    }
+
+    function showConfirmationDialog() {
+      confirmInputEl.value = '';
+      confirmErrorEl.textContent = '';
+      confirmDialogEl.showModal();
+      confirmInputEl.focus();
+    }
+
+    document.getElementById('btnSimReset').addEventListener('click', () => {
+      pendingDelete = { type: 'clear' };
+      document.getElementById('confirmTitle').textContent = 'Hapus semua data?';
+      document.getElementById('confirmMessage').textContent = 'Daftar rider dan seluruh hasil race akan dihapus. Ketik HAPUS untuk melanjutkan.';
+      showConfirmationDialog();
     });
 
-    document.getElementById('btnExportCsv').addEventListener('click', () => {
+    document.getElementById('btnCancelDelete').addEventListener('click', () => {
+      confirmDialogEl.close();
+      pendingDelete = null;
+    });
+
+    confirmDialogEl.addEventListener('cancel', () => {
+      pendingDelete = null;
+    });
+
+    confirmFormEl.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (confirmInputEl.value.trim() !== 'HAPUS') {
+        confirmErrorEl.textContent = 'Konfirmasi tidak cocok. Ketik HAPUS persis untuk melanjutkan.';
+        confirmInputEl.focus();
+        return;
+      }
+
+      if (pendingDelete?.type === 'record') {
+        ridersData = ridersData.filter((rider) => rider.recordId !== pendingDelete.recordId);
+        updateLeaderboard();
+      } else if (pendingDelete?.type === 'clear') {
+        clearAllData();
+      }
+
+      confirmDialogEl.close();
+      pendingDelete = null;
+    });
+
+    function csvEscape(value) {
+      return `"${String(value).replace(/"/g, '""')}"`;
+    }
+
+    btnExportCsvEl.addEventListener('click', () => {
       if (ridersData.length === 0) return;
-      let csvContent = "Rank,Bib,Name,Category,Time,GapMs\n";
-      const fastest = ridersData[0].durationMs;
-      ridersData.forEach((r, idx) => {
-        csvContent += `${idx + 1},${r.bib},"${r.name}","${r.category}",${formatTime(r.durationMs)},${r.durationMs - fastest}\n`;
+      const fastest = Math.min(...ridersData.map((rider) => rider.durationMs));
+      const rows = [[
+        'Rank', 'Bib', 'Name', 'Category', 'Start Time', 'End Time', 'Time', 'Gap (ms)'
+      ]];
+      ridersData.forEach((rider, index) => {
+        rows.push([
+          index + 1,
+          rider.bib,
+          rider.name,
+          rider.category,
+          new Date(rider.startTimeMillis).toISOString(),
+          new Date(rider.endTimeMillis).toISOString(),
+          formatTime(rider.durationMs),
+          rider.durationMs - fastest
+        ]);
       });
+      const csvContent = rows.map((row) => row.map(csvEscape).join(',')).join('\r\n');
 
       const blob = new Blob([csvContent], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
@@ -627,10 +970,10 @@
       a.setAttribute('href', url);
       a.setAttribute('download', `downhill_results_${Date.now()}.csv`);
       a.click();
+      window.URL.revokeObjectURL(url);
     });
 
     function initESP32WebSocket() {
-      // Connect to the same IP serving this file (ESP32 AP default: 192.168.4.1)
       const gateway = `ws://${window.location.hostname}:81/`;
       let socket = null;
 
@@ -651,13 +994,10 @@
         socket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            // Protocol contract with ESP32:
-            // Event 1: {"event": "START", "bib": "#101", "name": "Budi", "cat": "Men Elite", "time": 1718000000}
-            // Event 2: {"event": "FINISH", "duration": 135420}
             if (data.event === "START") {
-              triggerStartRider(data.bib, data.name, data.cat);
+              triggerStartRider(data.time ?? data.startTime);
             } else if (data.event === "FINISH") {
-              triggerFinishRider(data.duration);
+              triggerFinishRider(data.duration, data.time ?? data.endTime ?? null);
             }
           } catch (e) {
             console.error("JSON parse error:", e);
@@ -670,8 +1010,10 @@
       }
     }
 
+    renderParticipants();
+    updateLeaderboard();
+
     window.addEventListener('load', () => {
-      // If run inside real ESP32 web server, attempt WebSocket connection
       if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '') {
         initESP32WebSocket();
       }
