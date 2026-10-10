@@ -1,5 +1,7 @@
 #include <Arduino.h>
+#include <LittleFS.h>
 #include <WiFi.h>
+#include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <esp_timer.h>
 
@@ -7,6 +9,7 @@ const char *ssid = "Downhill_Timing_AP";
 const char *password = "balap12345";
 
 WebSocketsServer webSocket(81);
+WebServer httpServer(80);
 
 constexpr uint8_t BUTTON_PIN = 0;
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 50;
@@ -82,11 +85,25 @@ void webSocketEvent(uint8_t client, WStype_t type, uint8_t *payload, size_t leng
     case WStype_TEXT:
       Serial.printf("[%u] WebSocket message received (%u bytes)\n",
                     client, static_cast<unsigned int>(length));
+      if (!webSocket.broadcastTXT(payload, length)) {
+        Serial.println("Gagal meneruskan pesan WebSocket ke klien.");
+      }
       break;
 
     default:
       break;
   }
+}
+
+void handleIndex() {
+  File indexFile = LittleFS.open("/index.html", "r");
+  if (!indexFile) {
+    httpServer.send(500, "text/plain", "File index.html tidak ditemukan di LittleFS.");
+    return;
+  }
+
+  httpServer.streamFile(indexFile, "text/html; charset=utf-8");
+  indexFile.close();
 }
 
 void handleSerialSimulation() {
@@ -136,11 +153,24 @@ void setup() {
     return;
   }
 
+  if (!LittleFS.begin(false)) {
+    Serial.println("Gagal memasang LittleFS. Upload filesystem web dengan perintah PlatformIO: Upload Filesystem Image.");
+  } else {
+    httpServer.on("/", HTTP_GET, handleIndex);
+    httpServer.on("/index.html", HTTP_GET, handleIndex);
+    httpServer.onNotFound([]() {
+      httpServer.send(404, "text/plain", "Halaman tidak ditemukan.");
+    });
+    httpServer.begin();
+    Serial.println("HTTP server: port 80");
+  }
+
   Serial.println("\n--- ESP32-S3 DOWNHILL TIMING ENGINE ---");
   Serial.printf("Wi-Fi AP: %s\n", ssid);
   Serial.printf("Password: %s\n", password);
   Serial.print("Alamat IP: ");
   Serial.println(WiFi.softAPIP());
+  Serial.println("Buka alamat IP di atas pada browser untuk melihat leaderboard.");
   Serial.println("WebSocket server: port 81");
   Serial.println("Simulasi START LoRa: kirim LORA_START melalui Serial Monitor.");
   Serial.println("Simulasi FINISH: tekan tombol BOOT (GPIO 0).");
@@ -151,6 +181,7 @@ void setup() {
 }
 
 void loop() {
+  httpServer.handleClient();
   webSocket.loop();
   handleSerialSimulation();
   handleBootButton();

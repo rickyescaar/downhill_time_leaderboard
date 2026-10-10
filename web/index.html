@@ -1023,9 +1023,7 @@
       )) return;
 
       setESP32Offline();
-      const esp32ApHost = '192.168.4.1';
-      const pageHost = window.location.hostname;
-      const host = pageHost === esp32ApHost ? pageHost : esp32ApHost;
+      const host = window.location.hostname || '192.168.4.1';
       const gateway = `ws://${host}:81/`;
 
       try {
