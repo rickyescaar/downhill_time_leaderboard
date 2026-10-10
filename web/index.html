@@ -611,7 +611,7 @@
     let ridersData = [];
     let currentRider = null;
     let timerInterval = null;
-    let startTimeMillis = null;
+    let timerStartedAt = null;
     let nextBibSequence = 101;
 
     const runningTimerEl = document.getElementById('runningTimer');
@@ -718,16 +718,16 @@
       btnExportCsvEl.disabled = ridersData.length === 0;
     }
 
-    function startLiveStopwatch(startEpoch) {
-      startTimeMillis = startEpoch;
+    function startLiveStopwatch() {
+      timerStartedAt = performance.now();
       clearInterval(timerInterval);
-      runningTimerEl.textContent = formatTime(Date.now() - startTimeMillis);
+      runningTimerEl.textContent = formatTime(0);
 
       liveBadgeEl.textContent = "ON TRACK";
       liveBadgeEl.className = "live-state-badge racing";
 
       timerInterval = setInterval(() => {
-        const elapsed = Date.now() - startTimeMillis;
+        const elapsed = performance.now() - timerStartedAt;
         runningTimerEl.textContent = formatTime(elapsed);
       }, 23); // ~40 FPS refresh
     }
@@ -819,7 +819,7 @@
       currentNameEl.textContent = currentRider.name;
       currentCatEl.textContent = currentRider.category;
 
-      startLiveStopwatch(currentRider.startTimeMillis);
+      startLiveStopwatch();
       renderParticipants();
       return true;
     }
@@ -922,7 +922,7 @@
       nextBibSequence = 101;
       clearInterval(timerInterval);
       timerInterval = null;
-      startTimeMillis = null;
+      timerStartedAt = null;
       runningTimerEl.textContent = "00:00.000";
       currentBibEl.textContent = "--";
       currentNameEl.textContent = "Garis Start Kosong";
@@ -1023,7 +1023,9 @@
       )) return;
 
       setESP32Offline();
-      const host = window.location.hostname || '192.168.4.1';
+      const esp32ApHost = '192.168.4.1';
+      const pageHost = window.location.hostname;
+      const host = pageHost === esp32ApHost ? pageHost : esp32ApHost;
       const gateway = `ws://${host}:81/`;
 
       try {
@@ -1058,9 +1060,23 @@
           try {
             const data = JSON.parse(event.data);
             if (data.event === 'START') {
-              triggerStartRider(data.time ?? data.startTime);
+              if (data.time === undefined || data.time === null || !Number.isFinite(Number(data.time))) {
+                console.error('Invalid START payload: expected an epoch-millisecond time.', data);
+                return;
+              }
+              triggerStartRider(data.time);
             } else if (data.event === 'FINISH') {
-              triggerFinishRider(data.duration, data.time ?? data.endTime ?? null);
+              if (
+                data.endTime === undefined ||
+                data.endTime === null ||
+                !Number.isFinite(Number(data.endTime)) ||
+                !Number.isFinite(Number(data.duration)) ||
+                Number(data.duration) < 0
+              ) {
+                console.error('Invalid FINISH payload: expected epoch-millisecond endTime and duration.', data);
+                return;
+              }
+              triggerFinishRider(data.duration, data.endTime);
             }
           } catch (error) {
             console.error('JSON parse error:', error);
