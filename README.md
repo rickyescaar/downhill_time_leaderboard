@@ -1,13 +1,13 @@
 # downhill_time_leaderboard
 A system to count time trial race with IoT and display it on leaderboard
 
-## Menjalankan leaderboard dari ESP32
+## Simulator leaderboard ESP32-S3
 
 ESP32-S3 membuat Wi-Fi Access Point sendiri dan menyajikan dashboard `web/index.html`
 melalui HTTP. WebSocket di port 81 tetap digunakan untuk menerima event sensor.
 
 1. Hubungkan komputer ke ESP32 lewat USB.
-2. Upload firmware dari PlatformIO (`PlatformIO: Upload`).
+2. Build/upload firmware simulator (`pio run -e esp32-s3-devkitc-1 -t upload`).
 3. Upload file dashboard ke LittleFS (`PlatformIO: Upload Filesystem Image`).
    Jalankan upload filesystem setelah upload firmware, dan ulangi setiap kali
    `web/index.html` diubah.
@@ -31,3 +31,23 @@ Access Point ini untuk koneksi lokal dan tidak menyediakan akses internet.
    `time`, `startTime`, `endTime`, dan `duration` menggunakan milidetik; timestamp
    menggunakan epoch Unix. Ganti host dengan alamat IP yang dicetak ESP32 jika
    alamat Access Point berbeda.
+
+## Firmware perangkat finish
+
+Environment `finish_device` membangun sketch dari divisi perangkat elektronik
+untuk WEMOS LOLIN S2 Mini. Firmware ini memakai GPS NEO-6M, LoRa E220, radar
+RCWL-0516, serta dua panel P10 sesuai pin yang didefinisikan di
+`finish_device.ino`. Periksa board, modul, catu daya, dan wiring fisik sebelum
+upload.
+
+1. Sambungkan perangkat finish ke komputer melalui USB.
+2. Build firmware dengan `pio run -e finish_device`.
+3. Upload firmware dengan `pio run -e finish_device -t upload`.
+4. Buka Serial Monitor pada 115200 baud, sambungkan ponsel/laptop ke Wi-Fi
+   `RaceTimer-Finish` dengan password `race2024`, lalu buka `http://192.168.4.1`.
+
+Dashboard perangkat finish tertanam di `finish_web_page.h` dan disajikan langsung
+oleh firmware. Tidak perlu upload filesystem untuk halaman web; SPIFFS dipakai
+oleh firmware untuk menyimpan riwayat run dan nama event. `web/index.html`
+terpisah dan tetap digunakan oleh simulator ESP32-S3 di atas, bukan oleh perangkat
+finish. Firmware finish memakai API HTTP dan protokol LoRa perangkat start.
