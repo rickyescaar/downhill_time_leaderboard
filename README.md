@@ -51,3 +51,40 @@ oleh firmware. Tidak perlu upload filesystem untuk halaman web; SPIFFS dipakai
 oleh firmware untuk menyimpan riwayat run dan nama event. `web/index.html`
 terpisah dan tetap digunakan oleh simulator ESP32-S3 di atas, bukan oleh perangkat
 finish. Firmware finish memakai API HTTP dan protokol LoRa perangkat start.
+
+## Changelog perangkat finish
+
+Ringkasan ini mencatat perubahan sejak dashboard perangkat finish mulai
+diselaraskan dengan `finish_device.ino`. File `preview.html` mengikuti HTML yang
+tertanam di `finish_web_page.h` dan digunakan untuk melihat dashboard di browser.
+
+### 21 Oktober 2026
+
+- Menyatukan dashboard web dengan operasi Finish Device: status perangkat,
+  rider aktif, leaderboard, riwayat balapan, pengaturan nama event, dan aksi
+  manual menggunakan API firmware.
+- Mempertahankan tombol aksi manual untuk antisipasi masalah hardware: pemicu
+  finish manual dan pembatalan balapan aktif. Tombol start race dari dashboard
+  tidak digunakan; start balapan berasal dari Start Device melalui LoRa.
+- Menambahkan roster rider di Finish Device, tersimpan di SPIFFS. Dashboard
+  mendukung tambah, edit nama, hapus rider satu per satu, dan reset seluruh
+  roster. Bib dibuat berurutan dan tidak digunakan ulang setelah rider dihapus.
+- Menambahkan pencatatan DNF melalui dashboard dan firmware. DNF disimpan
+  sebagai hasil balapan, muncul pada leaderboard/riwayat, dan tidak mendapat
+  peringkat finisher. Aksi **Batalkan** tetap berbeda dari DNF dan tidak
+  mencatat hasil balapan.
+- Mempertahankan ekspor hasil ke CSV dari dashboard, termasuk status DNF dan
+  sumber data Finish Device.
+- Menghapus simulator rider lokal beserta tombol start, finish, DNF, dan clear
+  simulasi dari dashboard Finish Device agar tampilan hanya menggunakan proses
+  dan data perangkat.
+- Memperbarui `preview.html` agar sama dengan halaman yang tertanam di firmware.
+
+### Batasan yang masih diketahui
+
+- Roster rider yang disimpan di Finish Device belum disinkronkan ke Start Device.
+- Pemberitahuan DNF atau pembatalan dari Finish ke Start melalui LoRa belum
+  diimplementasikan karena dukungan protokol pada firmware Start perlu
+  disepakati dan diverifikasi terlebih dahulu.
+- Simulator ESP32-S3 dan `web/index.html` merupakan bagian terpisah; perubahan
+  dashboard Finish Device tidak menghapus atau menyinkronkan data simulator itu.
