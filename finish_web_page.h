@@ -640,10 +640,28 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 
         <div class="card">
           <div class="card-head">
-            <span class="card-title">ANTREAN &amp; SIMULATOR MANUAL</span>
+            <span class="card-title">ROSTER RIDER TERSIMPAN DI FINISH</span>
           </div>
           <div class="sim-note">
-            Simulasi hanya tersimpan selama halaman ini terbuka; tidak mengirim start/DNF ke ESP32 atau menyimpan ke SPIFFS.
+            Bib dibuat otomatis mulai dari 101. Daftar ini tersimpan di SPIFFS Finish Device, tetapi belum disinkronkan ke Start Device.
+          </div>
+          <form class="sim-form" id="registered-rider-form">
+            <input id="registered-rider-name" type="text" maxlength="35" placeholder="Nama rider (maks. 35 byte UTF-8)" aria-label="Nama rider" required>
+            <button class="btn btn-secondary" id="registered-rider-submit" type="submit">Simpan Rider</button>
+          </form>
+          <div class="roster-panel">
+            <ul class="sim-roster" id="registered-rider-list">
+              <li><span>Memuat roster rider...</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">SIMULATOR MANUAL</span>
+          </div>
+          <div class="sim-note">
+            Rider simulator hanya tersimpan selama halaman ini terbuka; tidak mengirim start/DNF ke ESP32 atau menyimpan ke SPIFFS.
             Ekspor CSV sebelum menutup atau memuat ulang halaman. Aktifkan mode simulasi lokal terlebih dahulu.
           </div>
           <form class="sim-form" id="sim-rider-form">
@@ -708,7 +726,10 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
               ⚙️ Nama Event
             </button>
             <button class="btn btn-secondary" onclick="clearAllData()">
-              🗑️ Reset Data
+              🗑️ Reset Leaderboard
+            </button>
+            <button class="btn btn-secondary" onclick="clearAllRiders()">
+              👥 Reset Rider
             </button>
           </div>
         </div>
@@ -760,6 +781,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     let nextSimulatedBib = 101;
     let deviceLeaderboard = [];
     let deviceRuns = [];
+    let registeredRiders = [];
 
     // Format millisecond duration: mm:ss.mmm
     function formatTime(ms) {
@@ -993,6 +1015,73 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           </div>
         `).join("");
     }
+
+    async function fetchRegisteredRiders() {
+      const list = document.getElementById('registered-rider-list');
+      try {
+        const res = await fetch('/api/riders');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        registeredRiders = await res.json();
+        renderRegisteredRiders();
+      } catch (err) {
+        console.error("Gagal memuat roster rider:", err);
+        list.innerHTML = '<li><span>Gagal memuat roster dari Finish Device.</span></li>';
+      }
+    }
+
+    function renderRegisteredRiders() {
+      const list = document.getElementById('registered-rider-list');
+      list.replaceChildren();
+      if (registeredRiders.length === 0) {
+        const item = document.createElement('li');
+        item.textContent = "Belum ada rider terdaftar.";
+        list.appendChild(item);
+        return;
+      }
+
+      registeredRiders.forEach(rider => {
+        const item = document.createElement('li');
+        const identity = document.createElement('span');
+        const team = document.createElement('span');
+        identity.textContent = `#${rider.bib} - ${rider.name}`;
+        team.className = "sim-roster-status";
+        team.textContent = rider.team || "Men Elite Downhill";
+        item.append(identity, team);
+        list.appendChild(item);
+      });
+    }
+
+    document.getElementById('registered-rider-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const input = document.getElementById('registered-rider-name');
+      const submit = document.getElementById('registered-rider-submit');
+      const name = input.value.trim();
+      if (!name) return;
+      if (new TextEncoder().encode(name).length > 35) {
+        alert("Nama rider maksimal 35 byte dalam UTF-8.");
+        return;
+      }
+
+      submit.disabled = true;
+      try {
+        const res = await fetch('/api/riders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
+        registeredRiders.push(result);
+        renderRegisteredRiders();
+        input.value = "";
+        input.focus();
+      } catch (err) {
+        console.error("Gagal menyimpan rider:", err);
+        alert(`Gagal menyimpan rider ke Finish Device: ${err.message}`);
+      } finally {
+        submit.disabled = false;
+      }
+    });
 
     function updateExportButton() {
       const button = document.getElementById('export-csv-button');
@@ -1269,14 +1358,36 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     }
 
     async function clearAllData() {
-      if (!confirm("PERINGATAN: Hapus seluruh data leaderboard dan riwayat balap?")) return;
+      if (!confirm("Hapus hasil leaderboard dan riwayat balap yang tersimpan di Finish Device? Roster rider terdaftar tidak akan dihapus.")) return;
       try {
         const res = await fetch('/api/clear-all', { method: 'POST' });
         if (!res.ok) throw new Error("HTTP error");
         fetchStatus();
         fetchLeaderboard();
         fetchRunHistory();
+        fetchRegisteredRiders();
       } catch (e) { alert("Gagal menghapus data"); }
+    }
+
+    async function clearAllRiders() {
+      if (!registeredRiders.length) {
+        alert("Roster rider sudah kosong.");
+        return;
+      }
+      if (!confirm("Hapus semua rider terdaftar dari Finish Device? Hasil leaderboard tidak akan dihapus.")) return;
+
+      try {
+        const res = await fetch('/api/riders/clear', { method: 'POST' });
+        if (!res.ok) {
+          const result = await res.json();
+          throw new Error(result.error || `HTTP ${res.status}`);
+        }
+        registeredRiders = [];
+        renderRegisteredRiders();
+      } catch (e) {
+        console.error("Gagal menghapus roster rider:", e);
+        alert(`Gagal mereset daftar rider: ${e.message}`);
+      }
     }
 
     // Modal Track Config
@@ -1318,6 +1429,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     setInterval(fetchStatus, 300);
     setInterval(fetchLeaderboard, 1000);
     setInterval(fetchRunHistory, 1000);
+    setInterval(fetchRegisteredRiders, 5000);
     updateSimulationControls();
     updateExportButton();
     fetchStatus();

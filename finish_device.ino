@@ -62,6 +62,7 @@
 #define P10_WIDTH         (32 * P10_PANELS_X)  // 64 pixels
 #define P10_HEIGHT        16
 #define MAX_RUNS          200
+#define MAX_RIDERS        200
 
 // P10 Panel Configuration Flags
 // Standard P10 HUB12: OE is active HIGH (HIGH = light up, LOW = blank)
@@ -157,9 +158,22 @@ struct RunRecord {
   bool completed;
 };
 
+// -- start by rizki
+struct RiderRecord {
+  char bib[12];
+  char name[36];
+  char team[36];
+};
+// -- end by rizki
+
 // ===================== STATE VARIABLES =====================
 RunRecord runs[MAX_RUNS];
 int runCount = 0;
+
+// -- start by rizki
+RiderRecord riders[MAX_RIDERS];
+int riderCount = 0;
+// -- end by rizki
 
 // GPS
 TinyGPSPlus gps;
@@ -221,6 +235,10 @@ void initWebServer();
 void initSPIFFS();
 void loadData();
 void saveData();
+// -- start by rizki
+bool saveRiders();
+void loadRiders();
+// -- end by rizki
 void updateGPS();
 void handleLoRa();
 void handleFinishTrigger(bool manual = false);
@@ -258,6 +276,9 @@ void setup() {
   initWiFiAP();
   initWebServer();
   loadData();
+  // -- start by rizki
+  loadRiders();
+  // -- end by rizki
 
   // Point 1: Tampilan boot hanya sekali saja saat booting (2.5 detik)
   bootTestUntil = millis() + 2500;
@@ -526,6 +547,80 @@ void initWebServer() {
     serializeJson(doc, res);
     server.send(200, "application/json", res);
   });
+
+  // -- start by rizki
+  // Registered riders are persisted separately from race results.
+  server.on("/api/riders", HTTP_GET, []() {
+    JsonDocument doc;
+    JsonArray arr = doc.to<JsonArray>();
+    for (int i = 0; i < riderCount; i++) {
+      JsonObject obj = arr.add<JsonObject>();
+      obj["bib"] = riders[i].bib;
+      obj["name"] = riders[i].name;
+      obj["team"] = riders[i].team;
+    }
+
+    String res;
+    serializeJson(doc, res);
+    server.send(200, "application/json", res);
+  });
+
+  server.on("/api/riders", HTTP_POST, []() {
+    if (!server.hasArg("plain")) {
+      server.send(400, "application/json", "{\"error\":\"Missing payload\"}");
+      return;
+    }
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, server.arg("plain"));
+    if (error) {
+      server.send(400, "application/json", "{\"error\":\"Invalid JSON payload\"}");
+      return;
+    }
+
+    const char* name = doc["name"] | "";
+    size_t nameLength = strlen(name);
+    if (nameLength == 0 || nameLength >= sizeof(riders[0].name)) {
+      server.send(400, "application/json", "{\"error\":\"Name must be 1 to 35 UTF-8 bytes\"}");
+      return;
+    }
+    if (riderCount >= MAX_RIDERS) {
+      server.send(409, "application/json", "{\"error\":\"Rider roster is full\"}");
+      return;
+    }
+
+    RiderRecord& rider = riders[riderCount];
+    snprintf(rider.bib, sizeof(rider.bib), "%d", riderCount + 101);
+    strlcpy(rider.name, name, sizeof(rider.name));
+    strlcpy(rider.team, "Men Elite Downhill", sizeof(rider.team));
+    riderCount++;
+
+    if (!saveRiders()) {
+      riderCount--;
+      server.send(500, "application/json", "{\"error\":\"Failed to save rider roster\"}");
+      return;
+    }
+
+    JsonDocument response;
+    response["success"] = true;
+    response["bib"] = rider.bib;
+    response["name"] = rider.name;
+    response["team"] = rider.team;
+    String res;
+    serializeJson(response, res);
+    server.send(201, "application/json", res);
+  });
+
+  server.on("/api/riders/clear", HTTP_POST, []() {
+    if (SPIFFS.exists("/riders.json") && !SPIFFS.remove("/riders.json")) {
+      server.send(500, "application/json", "{\"error\":\"Failed to delete rider roster\"}");
+      return;
+    }
+
+    riderCount = 0;
+    server.send(200, "application/json", "{\"success\":true}");
+  });
+  // -- end by rizki
 
   // API Manual Finish
   server.on("/api/manual-finish", HTTP_POST, []() {
@@ -1171,6 +1266,80 @@ String formatTimeShort(unsigned long ms) {
 }
 
 // ===================== PERSISTENCE (SPIFFS) =====================
+
+// -- start by rizki
+bool saveRiders() {
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < riderCount; i++) {
+    JsonObject obj = arr.add<JsonObject>();
+    obj["bib"] = riders[i].bib;
+    obj["name"] = riders[i].name;
+    obj["team"] = riders[i].team;
+  }
+
+  File f = SPIFFS.open("/riders.tmp", "w");
+  if (!f) {
+    Serial.println(F("[ERROR] Could not open temporary rider roster file"));
+    return false;
+  }
+
+  size_t expectedBytes = measureJson(doc);
+  size_t writtenBytes = serializeJson(doc, f);
+  f.flush();
+  f.close();
+  if (writtenBytes != expectedBytes) {
+    SPIFFS.remove("/riders.tmp");
+    Serial.println(F("[ERROR] Incomplete write while saving rider roster"));
+    return false;
+  }
+
+  if (!SPIFFS.rename("/riders.tmp", "/riders.json")) {
+    SPIFFS.remove("/riders.tmp");
+    Serial.println(F("[ERROR] Could not replace persisted rider roster"));
+    return false;
+  }
+  Serial.println("[DATA] Saved " + String(riderCount) + " registered riders to SPIFFS");
+  return true;
+}
+
+void loadRiders() {
+  riderCount = 0;
+  if (!SPIFFS.exists("/riders.json")) {
+    Serial.println(F("[DATA] No registered rider roster found"));
+    return;
+  }
+
+  File f = SPIFFS.open("/riders.json", "r");
+  if (!f) {
+    Serial.println(F("[ERROR] Could not open persisted rider roster"));
+    return;
+  }
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, f);
+  f.close();
+  if (error || !doc.is<JsonArray>()) {
+    Serial.println(F("[ERROR] Invalid persisted rider roster JSON"));
+    return;
+  }
+
+  JsonArray arr = doc.as<JsonArray>();
+  for (JsonObject obj : arr) {
+    if (riderCount >= MAX_RIDERS) break;
+    const char* bib = obj["bib"] | "";
+    const char* name = obj["name"] | "";
+    if (strlen(name) == 0) continue;
+
+    strlcpy(riders[riderCount].bib, bib, sizeof(riders[0].bib));
+    strlcpy(riders[riderCount].name, name, sizeof(riders[0].name));
+    strlcpy(riders[riderCount].team, obj["team"] | "Men Elite Downhill",
+            sizeof(riders[0].team));
+    riderCount++;
+  }
+  Serial.println("[DATA] Loaded " + String(riderCount) + " registered riders from SPIFFS");
+}
+// -- end by rizki
 
 void saveData() {
   // Save runs to SPIFFS JSON
