@@ -63,6 +63,7 @@
 #define P10_HEIGHT        16
 #define MAX_RUNS          200
 #define MAX_RIDERS        200
+#define MAX_RIDER_BIB     4294967295ULL
 
 // P10 Panel Configuration Flags
 // Standard P10 HUB12: OE is active HIGH (HIGH = light up, LOW = blank)
@@ -173,6 +174,7 @@ int runCount = 0;
 // -- start by rizki
 RiderRecord riders[MAX_RIDERS];
 int riderCount = 0;
+unsigned long long nextRiderBib = 101;
 // -- end by rizki
 
 // GPS
@@ -236,8 +238,14 @@ void initSPIFFS();
 void loadData();
 void saveData();
 // -- start by rizki
+bool handleDnf();
+bool saveRuns();
+// -- end by rizki
+// -- start by rizki
 bool saveRiders();
+bool saveNextRiderBib();
 void loadRiders();
+unsigned long long parseBibNumber(const char* bib);
 // -- end by rizki
 void updateGPS();
 void handleLoRa();
@@ -477,6 +485,9 @@ void initWebServer() {
       lr["name"] = lastRunData.name;
       lr["team"] = lastRunData.team;
       lr["elapsed"] = lastRunData.elapsedMs;
+      // -- start by rizki
+      lr["completed"] = lastRunData.completed;
+      // -- end by rizki
     }
 
     String res;
@@ -493,21 +504,27 @@ void initWebServer() {
     int sortedIndices[MAX_RUNS];
     int validCount = 0;
     for (int i = 0; i < runCount; i++) {
-      if (runs[i].completed) {
-        sortedIndices[validCount++] = i;
-      }
+      sortedIndices[validCount++] = i;
     }
 
-    // Sort fastest first
+    // -- start by rizki
+    // Keep finishers ranked by elapsed time and place DNF records after them.
     for (int i = 0; i < validCount - 1; i++) {
       for (int j = i + 1; j < validCount; j++) {
-        if (runs[sortedIndices[j]].elapsedMs < runs[sortedIndices[i]].elapsedMs) {
+        const RunRecord& current = runs[sortedIndices[i]];
+        const RunRecord& candidate = runs[sortedIndices[j]];
+        bool candidateComesFirst =
+          (candidate.completed && !current.completed) ||
+          (candidate.completed == current.completed &&
+           candidate.completed && candidate.elapsedMs < current.elapsedMs);
+        if (candidateComesFirst) {
           int temp = sortedIndices[i];
           sortedIndices[i] = sortedIndices[j];
           sortedIndices[j] = temp;
         }
       }
     }
+    // -- end by rizki
 
     for (int i = 0; i < validCount; i++) {
       int idx = sortedIndices[i];
@@ -534,13 +551,18 @@ void initWebServer() {
     JsonArray arr = doc.to<JsonArray>();
 
     for (int i = 0; i < runCount; i++) {
-      if (!runs[i].completed) continue;
       JsonObject obj = arr.add<JsonObject>();
       obj["bib"] = runs[i].bib;
       obj["name"] = runs[i].name;
       obj["team"] = runs[i].team;
       obj["elapsed"] = runs[i].elapsedMs;
       obj["startTime"] = runs[i].startTimeStr;
+      // -- start by rizki
+      obj["start"] = runs[i].startTimeMs;
+      obj["finish"] = runs[i].finishTimeMs;
+      obj["date"] = runs[i].date;
+      obj["completed"] = runs[i].completed;
+      // -- end by rizki
     }
 
     String res;
@@ -589,8 +611,21 @@ void initWebServer() {
       return;
     }
 
+    if (nextRiderBib > MAX_RIDER_BIB) {
+      server.send(409, "application/json", "{\"error\":\"No more rider bib numbers available\"}");
+      return;
+    }
+
+    unsigned long long allocatedBib = nextRiderBib;
+    nextRiderBib++;
+    if (!saveNextRiderBib()) {
+      nextRiderBib--;
+      server.send(500, "application/json", "{\"error\":\"Failed to reserve the next rider bib\"}");
+      return;
+    }
+
     RiderRecord& rider = riders[riderCount];
-    snprintf(rider.bib, sizeof(rider.bib), "%d", riderCount + 101);
+    snprintf(rider.bib, sizeof(rider.bib), "%llu", allocatedBib);
     strlcpy(rider.name, name, sizeof(rider.name));
     strlcpy(rider.team, "Men Elite Downhill", sizeof(rider.team));
     riderCount++;
@@ -611,7 +646,121 @@ void initWebServer() {
     server.send(201, "application/json", res);
   });
 
+  server.on("/api/riders/update", HTTP_POST, []() {
+    if (!server.hasArg("plain")) {
+      server.send(400, "application/json", "{\"error\":\"Missing payload\"}");
+      return;
+    }
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, server.arg("plain"));
+    if (error) {
+      server.send(400, "application/json", "{\"error\":\"Invalid JSON payload\"}");
+      return;
+    }
+
+    const char* bib = doc["bib"] | "";
+    const char* name = doc["name"] | "";
+    size_t nameLength = strlen(name);
+    if (strlen(bib) == 0 || nameLength == 0 || nameLength >= sizeof(riders[0].name)) {
+      server.send(400, "application/json", "{\"error\":\"Bib and a 1 to 35 byte UTF-8 name are required\"}");
+      return;
+    }
+    if (raceActive && strcmp(currentBib, bib) == 0) {
+      server.send(409, "application/json", "{\"error\":\"Cannot edit the rider currently racing\"}");
+      return;
+    }
+
+    int riderIndex = -1;
+    for (int i = 0; i < riderCount; i++) {
+      if (strcmp(riders[i].bib, bib) == 0) {
+        riderIndex = i;
+        break;
+      }
+    }
+    if (riderIndex < 0) {
+      server.send(404, "application/json", "{\"error\":\"Rider not found\"}");
+      return;
+    }
+
+    RiderRecord original = riders[riderIndex];
+    strlcpy(riders[riderIndex].name, name, sizeof(riders[riderIndex].name));
+    const char* team = doc["team"] | riders[riderIndex].team;
+    strlcpy(riders[riderIndex].team, team, sizeof(riders[riderIndex].team));
+    if (!saveRiders()) {
+      riders[riderIndex] = original;
+      server.send(500, "application/json", "{\"error\":\"Failed to save rider changes\"}");
+      return;
+    }
+
+    JsonDocument response;
+    response["success"] = true;
+    response["bib"] = riders[riderIndex].bib;
+    response["name"] = riders[riderIndex].name;
+    response["team"] = riders[riderIndex].team;
+    String res;
+    serializeJson(response, res);
+    server.send(200, "application/json", res);
+  });
+
+  server.on("/api/riders/delete", HTTP_POST, []() {
+    if (!server.hasArg("plain")) {
+      server.send(400, "application/json", "{\"error\":\"Missing payload\"}");
+      return;
+    }
+
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, server.arg("plain"));
+    if (error) {
+      server.send(400, "application/json", "{\"error\":\"Invalid JSON payload\"}");
+      return;
+    }
+
+    const char* bib = doc["bib"] | "";
+    if (strlen(bib) == 0) {
+      server.send(400, "application/json", "{\"error\":\"Bib is required\"}");
+      return;
+    }
+    if (raceActive && strcmp(currentBib, bib) == 0) {
+      server.send(409, "application/json", "{\"error\":\"Cannot delete the rider currently racing\"}");
+      return;
+    }
+
+    int riderIndex = -1;
+    for (int i = 0; i < riderCount; i++) {
+      if (strcmp(riders[i].bib, bib) == 0) {
+        riderIndex = i;
+        break;
+      }
+    }
+    if (riderIndex < 0) {
+      server.send(404, "application/json", "{\"error\":\"Rider not found\"}");
+      return;
+    }
+
+    RiderRecord removed = riders[riderIndex];
+    for (int i = riderIndex; i < riderCount - 1; i++) {
+      riders[i] = riders[i + 1];
+    }
+    riderCount--;
+    if (!saveRiders()) {
+      for (int i = riderCount; i > riderIndex; i--) {
+        riders[i] = riders[i - 1];
+      }
+      riders[riderIndex] = removed;
+      riderCount++;
+      server.send(500, "application/json", "{\"error\":\"Failed to delete rider\"}");
+      return;
+    }
+
+    server.send(200, "application/json", "{\"success\":true}");
+  });
+
   server.on("/api/riders/clear", HTTP_POST, []() {
+    if (raceActive) {
+      server.send(409, "application/json", "{\"error\":\"Cannot clear rider roster while a race is active\"}");
+      return;
+    }
     if (SPIFFS.exists("/riders.json") && !SPIFFS.remove("/riders.json")) {
       server.send(500, "application/json", "{\"error\":\"Failed to delete rider roster\"}");
       return;
@@ -631,6 +780,24 @@ void initWebServer() {
     handleFinishTrigger(true);
     server.send(200, "application/json", "{\"success\":true}");
   });
+
+  // -- start by rizki
+  server.on("/api/dnf", HTTP_POST, []() {
+    if (!raceActive) {
+      server.send(400, "application/json", "{\"error\":\"No active race\"}");
+      return;
+    }
+    if (runCount >= MAX_RUNS) {
+      server.send(409, "application/json", "{\"error\":\"Run history is full\"}");
+      return;
+    }
+    if (!handleDnf()) {
+      server.send(500, "application/json", "{\"error\":\"Failed to save DNF record\"}");
+      return;
+    }
+    server.send(200, "application/json", "{\"success\":true}");
+  });
+  // -- end by rizki
 
   // API Reset Race
   server.on("/api/reset-race", HTTP_POST, []() {
@@ -837,6 +1004,44 @@ void handleFinishTrigger(bool manual) {
   p10Mode = P10_FINISH_FREEZE;
   finishFreezeUntil = millis() + 10000; // Freeze & celebrate for 10 seconds
 }
+
+// -- start by rizki
+bool handleDnf() {
+  if (!raceActive || runCount >= MAX_RUNS) return false;
+
+  const unsigned long dnfTimeMs = getInterpolatedGPSMs();
+  const unsigned long elapsed = millis() - raceStartLocalMs;
+  RunRecord& record = runs[runCount];
+  memset(&record, 0, sizeof(record));
+  strlcpy(record.bib, currentBib, sizeof(record.bib));
+  strlcpy(record.name, currentName, sizeof(record.name));
+  strlcpy(record.team, currentTeam, sizeof(record.team));
+  record.startTimeMs = raceStartTimeMs;
+  record.finishTimeMs = dnfTimeMs;
+  record.elapsedMs = elapsed;
+  strlcpy(record.startTimeStr, currentStartTimeStr, sizeof(record.startTimeStr));
+  strlcpy(record.date, currentDate, sizeof(record.date));
+  record.completed = false;
+
+  runCount++;
+  if (!saveRuns()) {
+    runCount--;
+    Serial.println(F("[DNF] Could not persist DNF record; active race remains unchanged"));
+    return false;
+  }
+
+  raceElapsedMs = elapsed;
+  raceActive = false;
+  lastRunData = record;
+  hasLastRun = true;
+  p10Mode = P10_FINISH_FREEZE;
+  finishFreezeUntil = millis() + 10000;
+
+  Serial.println("[DNF] BIB: " + String(record.bib) + " | " + String(record.name) +
+                 " | Elapsed: " + formatTimeShort(elapsed));
+  return true;
+}
+// -- end by rizki
 
 // ===================== P10 DISPLAY DRIVER =====================
 
@@ -1165,12 +1370,15 @@ void renderFinishFreezeMode() {
   unsigned long freezeElapsed = 10000 - (finishFreezeUntil - millis());
 
   // Baris Atas (y = 1): Identitas Pembalap yang Finish
+  // -- start by rizki
   String finishLabel = "#" + String(hasLastRun ? lastRunData.bib : currentBib);
+  if (hasLastRun && !lastRunData.completed) finishLabel += " DNF";
   if (hasLastRun && strlen(lastRunData.name) > 0) {
     finishLabel += " " + String(lastRunData.name);
   } else {
-    finishLabel += " FINISH";
+    finishLabel += hasLastRun && !lastRunData.completed ? "" : " FINISH";
   }
+  // -- end by rizki
 
   int fPx = (int)finishLabel.length() * 6 - 1;
   if (fPx <= 60) {
@@ -1206,7 +1414,11 @@ void renderFinishFreezeMode() {
   p10DrawHLine(0, 63, 8, true);
 
   // Baris Bawah (y = 9): WAKTU FINISH RESMI (MM:SS.cs)
-  String timeStr = formatTimeShort(hasLastRun ? lastRunData.elapsedMs : raceElapsedMs);
+  // -- start by rizki
+  String timeStr = hasLastRun && !lastRunData.completed
+    ? String("DNF")
+    : formatTimeShort(hasLastRun ? lastRunData.elapsedMs : raceElapsedMs);
+  // -- end by rizki
   int len = timeStr.length();
   int sx = (FB_WIDTH - (len * 6 - 1)) / 2;
   if (sx < 0) sx = 0;
@@ -1268,6 +1480,44 @@ String formatTimeShort(unsigned long ms) {
 // ===================== PERSISTENCE (SPIFFS) =====================
 
 // -- start by rizki
+unsigned long long parseBibNumber(const char* bib) {
+  if (!bib || !*bib) return 0;
+  if (*bib == '#') bib++;
+  if (!*bib) return 0;
+
+  char* end = nullptr;
+  unsigned long long value = strtoull(bib, &end, 10);
+  return end != bib && *end == '\0' ? value : 0;
+}
+
+bool saveNextRiderBib() {
+  JsonDocument doc;
+  doc["nextBib"] = nextRiderBib;
+
+  File f = SPIFFS.open("/rider-sequence.tmp", "w");
+  if (!f) {
+    Serial.println(F("[ERROR] Could not open temporary rider sequence file"));
+    return false;
+  }
+
+  size_t expectedBytes = measureJson(doc);
+  size_t writtenBytes = serializeJson(doc, f);
+  f.flush();
+  f.close();
+  if (writtenBytes != expectedBytes) {
+    SPIFFS.remove("/rider-sequence.tmp");
+    Serial.println(F("[ERROR] Incomplete write while saving rider sequence"));
+    return false;
+  }
+
+  if (!SPIFFS.rename("/rider-sequence.tmp", "/rider-sequence.json")) {
+    SPIFFS.remove("/rider-sequence.tmp");
+    Serial.println(F("[ERROR] Could not replace persisted rider sequence"));
+    return false;
+  }
+  return true;
+}
+
 bool saveRiders() {
   JsonDocument doc;
   JsonArray arr = doc.to<JsonArray>();
@@ -1305,74 +1555,159 @@ bool saveRiders() {
 
 void loadRiders() {
   riderCount = 0;
-  if (!SPIFFS.exists("/riders.json")) {
+  nextRiderBib = 101;
+  bool sequenceLoaded = false;
+  bool sequenceNeedsSave = false;
+
+  if (SPIFFS.exists("/rider-sequence.json")) {
+    File sequenceFile = SPIFFS.open("/rider-sequence.json", "r");
+    if (sequenceFile) {
+      JsonDocument sequenceDoc;
+      DeserializationError sequenceError = deserializeJson(sequenceDoc, sequenceFile);
+      sequenceFile.close();
+      if (!sequenceError && sequenceDoc["nextBib"].is<unsigned long long>()) {
+        nextRiderBib = sequenceDoc["nextBib"].as<unsigned long long>();
+        sequenceLoaded = true;
+      } else {
+        Serial.println(F("[ERROR] Invalid persisted rider sequence; deriving from known bibs"));
+        sequenceNeedsSave = true;
+      }
+    } else {
+      Serial.println(F("[ERROR] Could not open persisted rider sequence; deriving from known bibs"));
+      sequenceNeedsSave = true;
+    }
+  } else {
+    sequenceNeedsSave = true;
+  }
+
+  if (SPIFFS.exists("/riders.json")) {
+    File f = SPIFFS.open("/riders.json", "r");
+    if (!f) {
+      Serial.println(F("[ERROR] Could not open persisted rider roster"));
+    } else {
+      JsonDocument doc;
+      DeserializationError error = deserializeJson(doc, f);
+      f.close();
+      if (error || !doc.is<JsonArray>()) {
+        Serial.println(F("[ERROR] Invalid persisted rider roster JSON"));
+      } else {
+        JsonArray arr = doc.as<JsonArray>();
+        for (JsonObject obj : arr) {
+          if (riderCount >= MAX_RIDERS) break;
+          const char* bib = obj["bib"] | "";
+          const char* name = obj["name"] | "";
+          if (strlen(name) == 0) continue;
+
+          strlcpy(riders[riderCount].bib, bib, sizeof(riders[0].bib));
+          strlcpy(riders[riderCount].name, name, sizeof(riders[0].name));
+          strlcpy(riders[riderCount].team, obj["team"] | "Men Elite Downhill",
+                  sizeof(riders[0].team));
+          riderCount++;
+        }
+      }
+    }
+  } else {
     Serial.println(F("[DATA] No registered rider roster found"));
-    return;
   }
 
-  File f = SPIFFS.open("/riders.json", "r");
-  if (!f) {
-    Serial.println(F("[ERROR] Could not open persisted rider roster"));
-    return;
+  unsigned long long highestBib = 100;
+  for (int i = 0; i < riderCount; i++) {
+    unsigned long long bibNumber = parseBibNumber(riders[i].bib);
+    if (bibNumber > highestBib) highestBib = bibNumber;
+  }
+  for (int i = 0; i < runCount; i++) {
+    unsigned long long bibNumber = parseBibNumber(runs[i].bib);
+    if (bibNumber > highestBib) highestBib = bibNumber;
   }
 
-  JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, f);
-  f.close();
-  if (error || !doc.is<JsonArray>()) {
-    Serial.println(F("[ERROR] Invalid persisted rider roster JSON"));
-    return;
+  unsigned long long minimumNextBib =
+    highestBib >= MAX_RIDER_BIB ? MAX_RIDER_BIB + 1 : highestBib + 1;
+  if (!sequenceLoaded || nextRiderBib < minimumNextBib) {
+    nextRiderBib = minimumNextBib;
+    sequenceNeedsSave = true;
+  }
+  if (sequenceNeedsSave && !saveNextRiderBib()) {
+    Serial.println(F("[ERROR] Could not persist recovered next rider bib"));
   }
 
-  JsonArray arr = doc.as<JsonArray>();
-  for (JsonObject obj : arr) {
-    if (riderCount >= MAX_RIDERS) break;
-    const char* bib = obj["bib"] | "";
-    const char* name = obj["name"] | "";
-    if (strlen(name) == 0) continue;
-
-    strlcpy(riders[riderCount].bib, bib, sizeof(riders[0].bib));
-    strlcpy(riders[riderCount].name, name, sizeof(riders[0].name));
-    strlcpy(riders[riderCount].team, obj["team"] | "Men Elite Downhill",
-            sizeof(riders[0].team));
-    riderCount++;
-  }
   Serial.println("[DATA] Loaded " + String(riderCount) + " registered riders from SPIFFS");
+  Serial.println("[DATA] Next unused rider bib: " + String((unsigned long long)nextRiderBib));
 }
 // -- end by rizki
 
-void saveData() {
-  // Save runs to SPIFFS JSON
-  File f = SPIFFS.open("/runs.json", "w");
-  if (f) {
-    JsonDocument doc;
-    JsonArray arr = doc.to<JsonArray>();
-    for (int i = 0; i < runCount; i++) {
-      if (!runs[i].completed) continue;
-      JsonObject obj = arr.add<JsonObject>();
-      obj["bib"] = runs[i].bib;
-      obj["name"] = runs[i].name;
-      obj["team"] = runs[i].team;
-      obj["start"] = runs[i].startTimeMs;
-      obj["finish"] = runs[i].finishTimeMs;
-      obj["elapsed"] = runs[i].elapsedMs;
-      obj["startTimeStr"] = runs[i].startTimeStr;
-      obj["date"] = runs[i].date;
-    }
-    serializeJson(doc, f);
-    f.close();
+// -- start by rizki
+bool saveRuns() {
+  JsonDocument doc;
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < runCount; i++) {
+    JsonObject obj = arr.add<JsonObject>();
+    obj["bib"] = runs[i].bib;
+    obj["name"] = runs[i].name;
+    obj["team"] = runs[i].team;
+    obj["start"] = runs[i].startTimeMs;
+    obj["finish"] = runs[i].finishTimeMs;
+    obj["elapsed"] = runs[i].elapsedMs;
+    obj["startTimeStr"] = runs[i].startTimeStr;
+    obj["date"] = runs[i].date;
+    obj["completed"] = runs[i].completed;
   }
 
-  // Save event metadata
-  f = SPIFFS.open("/event.json", "w");
-  if (f) {
-    JsonDocument doc;
-    doc["name"] = eventName;
-    serializeJson(doc, f);
-    f.close();
+  File f = SPIFFS.open("/runs.tmp", "w");
+  if (!f) {
+    Serial.println(F("[ERROR] Could not open temporary run history file"));
+    return false;
   }
+  const size_t expectedBytes = measureJson(doc);
+  const size_t writtenBytes = serializeJson(doc, f);
+  f.flush();
+  f.close();
+  if (writtenBytes != expectedBytes) {
+    SPIFFS.remove("/runs.tmp");
+    Serial.println(F("[ERROR] Incomplete write while saving run history"));
+    return false;
+  }
+  bool hadPreviousRuns = SPIFFS.exists("/runs.json");
+  if (SPIFFS.exists("/runs.bak") && !SPIFFS.remove("/runs.bak")) {
+    SPIFFS.remove("/runs.tmp");
+    Serial.println(F("[ERROR] Could not clear old run history backup"));
+    return false;
+  }
+  if (hadPreviousRuns && !SPIFFS.rename("/runs.json", "/runs.bak")) {
+    SPIFFS.remove("/runs.tmp");
+    Serial.println(F("[ERROR] Could not back up persisted run history"));
+    return false;
+  }
+  if (!SPIFFS.rename("/runs.tmp", "/runs.json")) {
+    SPIFFS.remove("/runs.tmp");
+    if (hadPreviousRuns) SPIFFS.rename("/runs.bak", "/runs.json");
+    Serial.println(F("[ERROR] Could not replace persisted run history"));
+    return false;
+  }
+  if (hadPreviousRuns) SPIFFS.remove("/runs.bak");
+  return true;
+}
+
+void saveData() {
+  if (!saveRuns()) return;
+  JsonDocument eventDoc;
+  eventDoc["name"] = eventName;
+  File f = SPIFFS.open("/event.json", "w");
+  if (!f) {
+    Serial.println(F("[ERROR] Could not open event metadata file"));
+    return;
+  }
+  const size_t expectedEventBytes = measureJson(eventDoc);
+  const size_t writtenEventBytes = serializeJson(eventDoc, f);
+  f.flush();
+  f.close();
+  if (writtenEventBytes != expectedEventBytes) {
+    Serial.println(F("[ERROR] Incomplete write while saving event metadata"));
+    return;
+  }
+
   Serial.println(F("[DATA] Saved runs and event to SPIFFS"));
 }
+// -- end by rizki
 
 void loadData() {
   if (SPIFFS.exists("/event.json")) {
@@ -1385,6 +1720,15 @@ void loadData() {
     }
   }
 
+  // -- start by rizki
+  if (!SPIFFS.exists("/runs.json") && SPIFFS.exists("/runs.bak")) {
+    if (!SPIFFS.rename("/runs.bak", "/runs.json")) {
+      Serial.println(F("[ERROR] Could not recover run history backup"));
+    }
+  } else if (SPIFFS.exists("/runs.json") && SPIFFS.exists("/runs.bak")) {
+    SPIFFS.remove("/runs.bak");
+  }
+  // -- end by rizki
   if (SPIFFS.exists("/runs.json")) {
     File f = SPIFFS.open("/runs.json", "r");
     if (f) {
@@ -1402,10 +1746,18 @@ void loadData() {
         runs[runCount].elapsedMs = obj["elapsed"] | 0;
         strlcpy(runs[runCount].startTimeStr, obj["startTimeStr"] | "", sizeof(runs[0].startTimeStr));
         strlcpy(runs[runCount].date, obj["date"] | "", sizeof(runs[0].date));
-        runs[runCount].completed = true;
+        // -- start by rizki
+        runs[runCount].completed = obj["completed"] | true;
+        // -- end by rizki
         runCount++;
       }
       f.close();
+      // -- start by rizki
+      if (runCount > 0) {
+        lastRunData = runs[runCount - 1];
+        hasLastRun = true;
+      }
+      // -- end by rizki
       Serial.println("[DATA] Loaded " + String(runCount) + " runs from SPIFFS");
     }
   }

@@ -349,6 +349,28 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       font-size: 0.8rem;
     }
     .sim-roster-status { color: var(--text-muted); }
+    .registered-rider-item {
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .registered-rider-actions {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+    .registered-rider-actions .btn {
+      padding: 5px 8px;
+      font-size: 0.68rem;
+    }
+    .registered-rider-edit {
+      min-width: 140px;
+      flex: 1;
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 7px 9px;
+      color: var(--text);
+    }
     .confirm-dialog {
       width: min(440px, calc(100% - 32px));
       margin: auto;
@@ -612,6 +634,11 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
             <button class="btn btn-finish" onclick="manualFinishTrigger()">
               🏁 Memicu Finish
             </button>
+            <!-- start by rizki -->
+            <button class="btn btn-cancel" onclick="markActiveRiderDnf()">
+              DNF · Tidak Finish
+            </button>
+            <!-- end by rizki -->
             <button class="btn btn-cancel" onclick="resetActiveRace()">
               ✕ Batalkan
             </button>
@@ -631,10 +658,10 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
         <!-- CARD 3: RECENT FINISHES -->
         <div class="card">
           <div class="card-head">
-            <span class="card-title">RIWAYAT FINISH TERBARU</span>
+            <span class="card-title">RIWAYAT BALAP TERBARU</span>
           </div>
           <div class="queue-list" id="queue-list-container">
-            <div style="font-size:0.8rem; color:var(--text-dim);">Belum ada peserta yang finish</div>
+            <div style="font-size:0.8rem; color:var(--text-dim);">Belum ada riwayat balapan</div>
           </div>
         </div>
 
@@ -643,7 +670,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
             <span class="card-title">ROSTER RIDER TERSIMPAN DI FINISH</span>
           </div>
           <div class="sim-note">
-            Bib dibuat otomatis mulai dari 101. Daftar ini tersimpan di SPIFFS Finish Device, tetapi belum disinkronkan ke Start Device.
+            Bib dibuat otomatis mulai dari 101 dan tidak digunakan ulang setelah rider dihapus. Daftar tersimpan di SPIFFS Finish Device, tetapi belum disinkronkan ke Start Device.
           </div>
           <form class="sim-form" id="registered-rider-form">
             <input id="registered-rider-name" type="text" maxlength="35" placeholder="Nama rider (maks. 35 byte UTF-8)" aria-label="Nama rider" required>
@@ -782,6 +809,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     let deviceLeaderboard = [];
     let deviceRuns = [];
     let registeredRiders = [];
+    let editingRegisteredRiderBib = null;
 
     // Format millisecond duration: mm:ss.mmm
     function formatTime(ms) {
@@ -894,12 +922,21 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           actions.style.display = "none";
 
           if (data.lastRun && data.lastRun.bib) {
-            badge.className = "status-badge badge-finished";
-            badge.textContent = "FINISHED";
+            // start by rizki
+            const wasDnf = data.lastRun.completed === false;
+            badge.className = wasDnf
+              ? "status-badge badge-standby"
+              : "status-badge badge-finished";
+            badge.textContent = wasDnf ? "DNF" : "FINISHED";
+            // end by rizki
             document.getElementById('active-bib').textContent = "#" + data.lastRun.bib;
             document.getElementById('active-name').textContent = data.lastRun.name || "Peserta";
             document.getElementById('active-cat').textContent = data.lastRun.team || "Men Elite Downhill";
-            document.getElementById('active-timer').textContent = formatTime(data.lastRun.elapsed);
+            // start by rizki
+            document.getElementById('active-timer').textContent = wasDnf
+              ? "DNF"
+              : formatTime(data.lastRun.elapsed);
+            // end by rizki
           } else {
             badge.className = "status-badge badge-standby";
             badge.textContent = "WAITING";
@@ -1000,11 +1037,12 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     function renderRunHistory() {
         const queueContainer = document.getElementById('queue-list-container');
         const runs = simulationMode
-          ? [...deviceRuns, ...simulatedResults].sort((a, b) => (b.finish || 0) - (a.finish || 0))
-          : deviceRuns;
+          ? [...deviceRuns, ...simulatedResults].sort((a, b) =>
+            (b.finish || b.start || 0) - (a.finish || a.start || 0))
+          : [...deviceRuns].reverse();
 
         if (!runs || runs.length === 0) {
-          queueContainer.innerHTML = '<div style="font-size:0.8rem; color:var(--text-dim);">Belum ada peserta yang finish</div>';
+          queueContainer.innerHTML = '<div style="font-size:0.8rem; color:var(--text-dim);">Belum ada riwayat balapan</div>';
           return;
         }
 
@@ -1041,14 +1079,112 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 
       registeredRiders.forEach(rider => {
         const item = document.createElement('li');
-        const identity = document.createElement('span');
-        const team = document.createElement('span');
-        identity.textContent = `#${rider.bib} - ${rider.name}`;
-        team.className = "sim-roster-status";
-        team.textContent = rider.team || "Men Elite Downhill";
-        item.append(identity, team);
+        item.className = "registered-rider-item";
+        const actions = document.createElement('span');
+        actions.className = "registered-rider-actions";
+
+        if (editingRegisteredRiderBib === rider.bib) {
+          const input = document.createElement('input');
+          input.className = "registered-rider-edit";
+          input.type = "text";
+          input.maxLength = 35;
+          input.value = rider.name;
+          input.setAttribute('aria-label', `Edit nama rider bib ${rider.bib}`);
+          const saveButton = document.createElement('button');
+          saveButton.className = "btn btn-secondary";
+          saveButton.type = "button";
+          saveButton.textContent = "Simpan";
+          saveButton.addEventListener('click', () => updateRegisteredRider(rider.bib, input.value));
+          const cancelButton = document.createElement('button');
+          cancelButton.className = "btn btn-secondary";
+          cancelButton.type = "button";
+          cancelButton.textContent = "Batal";
+          cancelButton.addEventListener('click', () => {
+            editingRegisteredRiderBib = null;
+            renderRegisteredRiders();
+          });
+          input.addEventListener('keydown', event => {
+            if (event.key === "Enter") updateRegisteredRider(rider.bib, input.value);
+            if (event.key === "Escape") {
+              editingRegisteredRiderBib = null;
+              renderRegisteredRiders();
+            }
+          });
+          actions.append(saveButton, cancelButton);
+          item.append(input, actions);
+          input.focus();
+        } else {
+          const identity = document.createElement('span');
+          const team = document.createElement('span');
+          identity.textContent = `#${rider.bib} - ${rider.name}`;
+          team.className = "sim-roster-status";
+          team.textContent = rider.team || "Men Elite Downhill";
+          const editButton = document.createElement('button');
+          editButton.className = "btn btn-secondary";
+          editButton.type = "button";
+          editButton.textContent = "Edit";
+          editButton.addEventListener('click', () => {
+            editingRegisteredRiderBib = rider.bib;
+            renderRegisteredRiders();
+          });
+          const deleteButton = document.createElement('button');
+          deleteButton.className = "btn btn-cancel";
+          deleteButton.type = "button";
+          deleteButton.textContent = "Hapus";
+          deleteButton.addEventListener('click', () => deleteRegisteredRider(rider));
+          actions.append(editButton, deleteButton);
+          item.append(identity, team, actions);
+        }
         list.appendChild(item);
       });
+    }
+
+    async function updateRegisteredRider(bib, value) {
+      const name = value.trim();
+      if (!name) {
+        alert("Nama rider tidak boleh kosong.");
+        return;
+      }
+      if (new TextEncoder().encode(name).length > 35) {
+        alert("Nama rider maksimal 35 byte dalam UTF-8.");
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/riders/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bib, name })
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
+        const index = registeredRiders.findIndex(rider => rider.bib === bib);
+        if (index >= 0) registeredRiders[index] = result;
+        editingRegisteredRiderBib = null;
+        renderRegisteredRiders();
+      } catch (err) {
+        console.error("Gagal mengubah rider:", err);
+        alert(`Gagal mengubah rider: ${err.message}`);
+      }
+    }
+
+    async function deleteRegisteredRider(rider) {
+      if (!confirm(`Hapus rider #${rider.bib} - ${rider.name}? Hasil balapan yang sudah tercatat tidak akan dihapus.`)) return;
+      try {
+        const res = await fetch('/api/riders/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bib: rider.bib })
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
+        registeredRiders = registeredRiders.filter(item => item.bib !== rider.bib);
+        if (editingRegisteredRiderBib === rider.bib) editingRegisteredRiderBib = null;
+        renderRegisteredRiders();
+      } catch (err) {
+        console.error("Gagal menghapus rider:", err);
+        alert(`Gagal menghapus rider: ${err.message}`);
+      }
     }
 
     document.getElementById('registered-rider-form').addEventListener('submit', async event => {
@@ -1347,6 +1483,23 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
         fetchRunHistory();
       } catch (e) { alert("Gagal memicu finish"); }
     }
+
+    // start by rizki
+    async function markActiveRiderDnf() {
+      const bib = document.getElementById('active-bib').textContent;
+      const name = document.getElementById('active-name').textContent;
+      if (!confirm(`Tandai rider ${bib} - ${name} sebagai DNF? Catatan DNF akan disimpan dan balapan aktif diakhiri.`)) return;
+      try {
+        const res = await fetch('/api/dnf', { method: 'POST' });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
+        await Promise.all([fetchStatus(), fetchLeaderboard(), fetchRunHistory()]);
+      } catch (e) {
+        console.error("Gagal mencatat DNF:", e);
+        alert(`Gagal mencatat DNF: ${e.message}`);
+      }
+    }
+    // end by rizki
 
     async function resetActiveRace() {
       if (!confirm("Batalkan balapan aktif peserta ini?")) return;
