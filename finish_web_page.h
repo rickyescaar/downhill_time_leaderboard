@@ -299,33 +299,25 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       cursor: not-allowed;
       opacity: 0.55;
     }
-    .sim-panel, .roster-panel {
+    .roster-panel {
       background: #101827;
       border: 1px dashed #334155;
       border-radius: 8px;
       padding: 12px;
       margin-top: 12px;
     }
-    .sim-heading, .roster-heading {
-      color: var(--text-muted);
-      font-size: 0.7rem;
-      font-weight: 800;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-      text-transform: uppercase;
-    }
-    .sim-note {
+    .roster-note {
       color: var(--text-dim);
       font-size: 0.75rem;
       line-height: 1.45;
       margin-bottom: 10px;
     }
-    .sim-form, .sim-controls {
+    .roster-form {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
     }
-    .sim-form input {
+    .roster-form input {
       min-width: 140px;
       flex: 1;
       background: #090d16;
@@ -334,21 +326,21 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       padding: 9px 10px;
       color: var(--text);
     }
-    .sim-roster {
+    .registered-rider-list {
       display: grid;
       gap: 6px;
       list-style: none;
       max-height: 150px;
       overflow-y: auto;
     }
-    .sim-roster li {
+    .registered-rider-list li {
       display: flex;
       justify-content: space-between;
       gap: 8px;
       color: #cbd5e1;
       font-size: 0.8rem;
     }
-    .sim-roster-status { color: var(--text-muted); }
+    .registered-rider-team { color: var(--text-muted); }
     .registered-rider-item {
       align-items: center;
       flex-wrap: wrap;
@@ -599,9 +591,6 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           <span class="status-dot" id="system-dot"></span>
           <span id="system-status-text">ESP32 Online (Live Telemetry)</span>
         </div>
-        <button class="btn btn-secondary" id="simulation-mode-toggle" type="button" onclick="toggleSimulationMode()">
-          Mode Simulasi Lokal
-        </button>
         <div class="header-clock" id="live-clock" title="Waktu lokal browser, bukan waktu GPS perangkat">--:--:--</div>
       </div>
     </header>
@@ -669,48 +658,20 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           <div class="card-head">
             <span class="card-title">ROSTER RIDER TERSIMPAN DI FINISH</span>
           </div>
-          <div class="sim-note">
+          <div class="roster-note">
             Bib dibuat otomatis mulai dari 101 dan tidak digunakan ulang setelah rider dihapus. Daftar tersimpan di SPIFFS Finish Device, tetapi belum disinkronkan ke Start Device.
           </div>
-          <form class="sim-form" id="registered-rider-form">
+          <form class="roster-form" id="registered-rider-form">
             <input id="registered-rider-name" type="text" maxlength="35" placeholder="Nama rider (maks. 35 byte UTF-8)" aria-label="Nama rider" required>
             <button class="btn btn-secondary" id="registered-rider-submit" type="submit">Simpan Rider</button>
           </form>
           <div class="roster-panel">
-            <ul class="sim-roster" id="registered-rider-list">
+            <ul class="registered-rider-list" id="registered-rider-list">
               <li><span>Memuat roster rider...</span></li>
             </ul>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-head">
-            <span class="card-title">SIMULATOR MANUAL</span>
-          </div>
-          <div class="sim-note">
-            Rider simulator hanya tersimpan selama halaman ini terbuka; tidak mengirim start/DNF ke ESP32 atau menyimpan ke SPIFFS.
-            Ekspor CSV sebelum menutup atau memuat ulang halaman. Aktifkan mode simulasi lokal terlebih dahulu.
-          </div>
-          <form class="sim-form" id="sim-rider-form">
-            <input id="sim-rider-name" type="text" maxlength="80" placeholder="Nama rider" aria-label="Nama rider simulasi" required disabled>
-            <button class="btn btn-secondary" type="submit" disabled>Tambah Rider</button>
-          </form>
-          <div class="roster-panel">
-            <div class="roster-heading">Daftar Rider Simulasi</div>
-            <ul class="sim-roster" id="sim-roster-list">
-              <li><span>Belum ada rider simulasi.</span></li>
-            </ul>
-          </div>
-          <div class="sim-panel">
-            <div class="sim-heading" style="width:100%">Simulator Controls</div>
-            <div class="sim-controls">
-              <button class="btn btn-secondary" id="sim-start-button" type="button" style="display:none" disabled>Simulasi Start Rider</button>
-              <button class="btn btn-secondary" id="sim-finish-button" type="button" disabled>Trigger Finish Radar</button>
-              <button class="btn btn-secondary" id="sim-dnf-button" type="button" disabled>Not Finished (DNF)</button>
-              <button class="btn btn-secondary" id="sim-clear-button" type="button">Clear Simulation</button>
-            </div>
-          </div>
-        </div>
       </section>
 
       <!-- RIGHT COLUMN: OFFICIAL LEADERBOARD -->
@@ -782,30 +743,10 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     </div>
   </div>
 
-  <dialog class="confirm-dialog" id="sim-clear-dialog" aria-labelledby="sim-clear-title">
-    <form id="sim-clear-form">
-      <h2 id="sim-clear-title">Hapus data simulasi?</h2>
-      <p>Daftar rider dan hasil simulasi lokal akan dihapus. Data perangkat tidak terpengaruh. Ketik HAPUS untuk melanjutkan.</p>
-      <input id="sim-clear-confirmation" type="text" autocomplete="off" placeholder="Ketik HAPUS" aria-label="Ketik HAPUS untuk konfirmasi">
-      <div class="confirm-error" id="sim-clear-error" aria-live="polite"></div>
-      <div class="confirm-actions">
-        <button class="btn btn-secondary" id="sim-clear-cancel" type="button">Batal</button>
-        <button class="btn btn-cancel" type="submit">Hapus Simulasi</button>
-      </div>
-    </form>
-  </dialog>
-
   <script>
     let raceActive = false;
     let raceStartLocalMs = 0;
     let raceElapsedServer = 0;
-    let simulationMode = false;
-    let simulatedParticipants = [];
-    let simulatedResults = [];
-    let currentSimulatedRider = null;
-    let simulatedStartTime = 0;
-    let simulatedTimer = null;
-    let nextSimulatedBib = 101;
     let deviceLeaderboard = [];
     let deviceRuns = [];
     let registeredRiders = [];
@@ -822,17 +763,6 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
         String(minutes).padStart(2, '0') + ":" +
         String(seconds).padStart(2, '0') + "." +
         String(millis).padStart(3, '0')
-      );
-    }
-
-    function formatLocalClockTime(ms) {
-      if (!ms || ms === 0) return "--:--:--.---";
-      const date = new Date(ms);
-      return (
-        String(date.getHours()).padStart(2, '0') + ":" +
-        String(date.getMinutes()).padStart(2, '0') + ":" +
-        String(date.getSeconds()).padStart(2, '0') + "." +
-        String(date.getMilliseconds()).padStart(3, '0')
       );
     }
 
@@ -865,7 +795,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 
     // High frequency live timer runner (60fps)
     function runLiveTimer() {
-      if (!raceActive || simulationMode) return;
+      if (!raceActive) return;
       const now = performance.now();
       const currentElapsed = Math.floor(raceElapsedServer + (now - raceStartLocalMs));
       document.getElementById('active-timer').textContent = formatTime(currentElapsed);
@@ -885,15 +815,12 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           : "GPS belum siap";
         const loraStatus = data.loraReady ? "LoRa siap" : "LoRa tidak siap";
         const startStatus = data.startDeviceOnline ? "Start online" : "Start offline";
-        document.getElementById('system-status-text').textContent = simulationMode
-          ? `SIMULASI LOKAL · ESP32 Online · ${gpsStatus} · ${loraStatus} · ${startStatus}`
-          : `ESP32 Online · ${gpsStatus} · ${loraStatus} · ${startStatus}`;
+        document.getElementById('system-status-text').textContent =
+          `ESP32 Online · ${gpsStatus} · ${loraStatus} · ${startStatus}`;
 
         if (data.eventName && data.eventName.length > 0) {
           document.getElementById('track-name').textContent = data.eventName;
         }
-
-        if (simulationMode) return;
 
         // Active Rider handling
         const badge = document.getElementById('rider-status-badge');
@@ -949,9 +876,8 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 
       } catch (err) {
         document.getElementById('system-dot').className = "status-dot offline";
-        document.getElementById('system-status-text').textContent = simulationMode
-          ? "SIMULASI LOKAL · ESP32 offline"
-          : "ESP32 Offline (Reconnecting...)";
+        document.getElementById('system-status-text').textContent =
+          "ESP32 Offline (Reconnecting...)";
       }
     }
 
@@ -961,9 +887,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
         const res = await fetch('/api/leaderboard');
         if (!res.ok) throw new Error("HTTP error");
         deviceLeaderboard = await res.json();
-        renderLeaderboard(simulationMode
-          ? [...deviceLeaderboard, ...simulatedResults]
-          : deviceLeaderboard);
+        renderLeaderboard(deviceLeaderboard);
       } catch (err) {
         console.error(err);
       }
@@ -993,11 +917,11 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
         const rank = isDnf ? null : ++finishRank;
         const posText = isDnf ? "DNF" : `#${rank}`;
         const posClass = isDnf ? "pos-nf" : rank === 1 ? "pos-gold" : rank === 2 ? "pos-silver" : rank === 3 ? "pos-bronze" : "pos-other";
-        const startTimeStr = item.localTime
-          ? formatLocalClockTime(item.start)
-          : item.start ? formatClockTime(item.start) : (item.startTimeStr || "--:--:--");
+        const startTimeStr = item.start
+          ? formatClockTime(item.start)
+          : (item.startTimeStr || "--:--:--");
         const endTimeStr = item.finish
-          ? (item.localTime ? formatLocalClockTime(item.finish) : formatClockTime(item.finish))
+          ? formatClockTime(item.finish)
           : "--";
         const gapText = isDnf ? "--" : rank === 1 ? "LEADER" : "+" + formatTime(item.elapsed - fastestTime);
 
@@ -1010,9 +934,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
               <td class="time-mono">${endTimeStr}</td>
               <td class="duration-cell ${isDnf ? 'nf' : ''}">${isDnf ? 'NOT FINISHED' : formatTime(item.elapsed)}</td>
               <td class="gap-cell">${gapText}</td>
-              <td class="status-cell ${isDnf ? 'failed' : 'ok'}">${item.localTime
-                ? (isDnf ? 'SIM DNF' : 'SIM FINISH')
-                : (isDnf ? 'RACE FAILED' : 'FINISH')}</td>
+              <td class="status-cell ${isDnf ? 'failed' : 'ok'}">${isDnf ? 'RACE FAILED' : 'FINISH'}</td>
             </tr>
           `;
         }).join("");
@@ -1036,10 +958,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 
     function renderRunHistory() {
         const queueContainer = document.getElementById('queue-list-container');
-        const runs = simulationMode
-          ? [...deviceRuns, ...simulatedResults].sort((a, b) =>
-            (b.finish || b.start || 0) - (a.finish || a.start || 0))
-          : [...deviceRuns].reverse();
+        const runs = [...deviceRuns].reverse();
 
         if (!runs || runs.length === 0) {
           queueContainer.innerHTML = '<div style="font-size:0.8rem; color:var(--text-dim);">Belum ada riwayat balapan</div>';
@@ -1117,7 +1036,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           const identity = document.createElement('span');
           const team = document.createElement('span');
           identity.textContent = `#${rider.bib} - ${rider.name}`;
-          team.className = "sim-roster-status";
+          team.className = "registered-rider-team";
           team.textContent = rider.team || "Men Elite Downhill";
           const editButton = document.createElement('button');
           editButton.className = "btn btn-secondary";
@@ -1221,215 +1140,15 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 
     function updateExportButton() {
       const button = document.getElementById('export-csv-button');
-      button.disabled = deviceLeaderboard.length === 0 && simulatedResults.length === 0;
+      button.disabled = deviceLeaderboard.length === 0;
     }
-
-    function toggleSimulationMode() {
-      simulationMode = !simulationMode;
-      document.getElementById('simulation-mode-toggle').textContent =
-        simulationMode ? "Kembali ke Mode Perangkat" : "Mode Simulasi Lokal";
-      document.getElementById('system-status-text').textContent = simulationMode
-        ? "SIMULASI LOKAL · data tidak dikirim ke perangkat"
-        : "Menghubungkan ke Finish Device...";
-      document.getElementById('sim-rider-name').disabled = !simulationMode;
-      document.querySelector('#sim-rider-form button').disabled = !simulationMode;
-      document.getElementById('sim-start-button').style.display =
-        simulationMode ? "inline-flex" : "none";
-      document.getElementById('leaderboard-title').textContent = simulationMode
-        ? "LEADERBOARD · PERANGKAT + SIMULASI LOKAL"
-        : "OFFICIAL RACE LEADERBOARD (FASTEST TIME)";
-
-      if (simulationMode) {
-        renderSimulationState();
-        renderLeaderboard([...deviceLeaderboard, ...simulatedResults]);
-        renderRunHistory();
-      } else {
-        clearInterval(simulatedTimer);
-        simulatedTimer = null;
-        raceActive = false;
-        fetchStatus();
-        renderLeaderboard(deviceLeaderboard);
-        renderRunHistory();
-      }
-      updateSimulationControls();
-    }
-
-    function updateSimulationControls() {
-      document.getElementById('sim-start-button').disabled =
-        !simulationMode || Boolean(currentSimulatedRider) ||
-        !simulatedParticipants.some(rider => rider.status === 'waiting');
-      document.getElementById('sim-finish-button').disabled =
-        !simulationMode || !currentSimulatedRider;
-      document.getElementById('sim-dnf-button').disabled =
-        !simulationMode || !currentSimulatedRider;
-      document.getElementById('sim-clear-button').disabled =
-        !simulationMode || (!simulatedParticipants.length && !simulatedResults.length);
-    }
-
-    function renderSimulationState() {
-      const list = document.getElementById('sim-roster-list');
-      list.replaceChildren();
-      if (!simulatedParticipants.length) {
-        const item = document.createElement('li');
-        item.textContent = "Belum ada rider simulasi.";
-        list.appendChild(item);
-      } else {
-        simulatedParticipants.forEach(rider => {
-          const item = document.createElement('li');
-          const identity = document.createElement('span');
-          const status = document.createElement('span');
-          identity.textContent = `${rider.bib} - ${rider.name}`;
-          status.className = "sim-roster-status";
-          status.textContent = rider.status === 'waiting' ? "Menunggu"
-            : rider.status === 'racing' ? "Sedang race"
-              : rider.status === 'dnf' ? "DNF" : "Selesai";
-          item.append(identity, status);
-          list.appendChild(item);
-        });
-      }
-
-      const nextRider = simulatedParticipants.find(rider => rider.status === 'waiting');
-      document.getElementById('next-rider-text').textContent = nextRider
-        ? `${nextRider.bib} - ${nextRider.name}`
-        : "Belum ada rider dalam antrean simulasi";
-
-      const badge = document.getElementById('rider-status-badge');
-      const actions = document.getElementById('action-buttons');
-      actions.style.display = "none";
-      if (currentSimulatedRider) {
-        badge.className = "status-badge badge-on-track";
-        badge.textContent = "SIMULASI";
-        document.getElementById('active-bib').textContent = currentSimulatedRider.bib;
-        document.getElementById('active-name').textContent = currentSimulatedRider.name;
-        document.getElementById('active-cat').textContent = currentSimulatedRider.team;
-        document.getElementById('active-timer').textContent =
-          formatTime(Date.now() - simulatedStartTime);
-        clearInterval(simulatedTimer);
-        simulatedTimer = setInterval(() => {
-          if (!simulationMode || !currentSimulatedRider) return;
-          document.getElementById('active-timer').textContent =
-            formatTime(Date.now() - simulatedStartTime);
-        }, 25);
-      } else {
-        clearInterval(simulatedTimer);
-        simulatedTimer = null;
-        const lastResult = simulatedResults[simulatedResults.length - 1];
-        if (lastResult) {
-          badge.className = lastResult.completed
-            ? "status-badge badge-finished"
-            : "status-badge badge-standby";
-          badge.textContent = lastResult.completed ? "SIM FINISH" : "DNF";
-          document.getElementById('active-bib').textContent = lastResult.bib;
-          document.getElementById('active-name').textContent = lastResult.name;
-          document.getElementById('active-cat').textContent = lastResult.team;
-          document.getElementById('active-timer').textContent = lastResult.completed
-            ? formatTime(lastResult.elapsed)
-            : "DNF";
-        } else {
-          badge.className = "status-badge badge-standby";
-          badge.textContent = "WAITING";
-          document.getElementById('active-bib').textContent = "#--";
-          document.getElementById('active-name').textContent = "Menunggu Start...";
-          document.getElementById('active-cat').textContent = "Men Elite Downhill";
-          document.getElementById('active-timer').textContent = "00:00.000";
-        }
-      }
-      renderLeaderboard([...deviceLeaderboard, ...simulatedResults]);
-      renderRunHistory();
-      updateSimulationControls();
-    }
-
-    document.getElementById('sim-rider-form').addEventListener('submit', event => {
-      event.preventDefault();
-      if (!simulationMode) return;
-      const input = document.getElementById('sim-rider-name');
-      const name = input.value.trim();
-      if (!name) return;
-      simulatedParticipants.push({
-        id: `sim-${Date.now()}-${nextSimulatedBib}`,
-        bib: `#${nextSimulatedBib++}`,
-        name,
-        team: "Men Elite Downhill",
-        status: "waiting"
-      });
-      input.value = "";
-      renderSimulationState();
-      input.focus();
-    });
-
-    document.getElementById('sim-start-button').addEventListener('click', () => {
-      if (!simulationMode || currentSimulatedRider) return;
-      const rider = simulatedParticipants.find(item => item.status === 'waiting');
-      if (!rider) return;
-      rider.status = "racing";
-      currentSimulatedRider = rider;
-      simulatedStartTime = Date.now();
-      renderSimulationState();
-    });
-
-    function completeSimulatedRider(completed) {
-      if (!simulationMode || !currentSimulatedRider) return;
-      const finishTime = Date.now();
-      const elapsed = finishTime - simulatedStartTime;
-      currentSimulatedRider.status = completed ? "finished" : "dnf";
-      simulatedResults.push({
-        bib: currentSimulatedRider.bib,
-        name: currentSimulatedRider.name,
-        team: currentSimulatedRider.team,
-        start: simulatedStartTime,
-        finish: completed ? finishTime : 0,
-        elapsed: completed ? elapsed : 0,
-        startTimeStr: formatLocalClockTime(simulatedStartTime),
-        date: new Date(simulatedStartTime).toISOString().slice(0, 10),
-        localTime: true,
-        completed
-      });
-      currentSimulatedRider = null;
-      renderSimulationState();
-    }
-
-    document.getElementById('sim-finish-button').addEventListener('click', () => {
-      completeSimulatedRider(true);
-    });
-    document.getElementById('sim-dnf-button').addEventListener('click', () => {
-      completeSimulatedRider(false);
-    });
-
-    document.getElementById('sim-clear-button').addEventListener('click', () => {
-      const dialog = document.getElementById('sim-clear-dialog');
-      document.getElementById('sim-clear-confirmation').value = "";
-      document.getElementById('sim-clear-error').textContent = "";
-      dialog.showModal();
-      document.getElementById('sim-clear-confirmation').focus();
-    });
-    document.getElementById('sim-clear-cancel').addEventListener('click', () => {
-      document.getElementById('sim-clear-dialog').close();
-    });
-    document.getElementById('sim-clear-form').addEventListener('submit', event => {
-      event.preventDefault();
-      const confirmation = document.getElementById('sim-clear-confirmation');
-      if (confirmation.value.trim() !== "HAPUS") {
-        document.getElementById('sim-clear-error').textContent =
-          "Konfirmasi tidak cocok. Ketik HAPUS persis untuk melanjutkan.";
-        confirmation.focus();
-        return;
-      }
-      simulatedParticipants = [];
-      simulatedResults = [];
-      currentSimulatedRider = null;
-      nextSimulatedBib = 101;
-      clearInterval(simulatedTimer);
-      simulatedTimer = null;
-      document.getElementById('sim-clear-dialog').close();
-      renderSimulationState();
-    });
 
     function csvEscape(value) {
       return `"${String(value ?? '').replace(/"/g, '""')}"`;
     }
 
     function exportCSV() {
-      const rowsToExport = [...deviceLeaderboard, ...simulatedResults]
+      const rowsToExport = [...deviceLeaderboard]
         .sort((a, b) => {
           if (!a.completed) return b.completed ? 1 : 0;
           if (!b.completed) return -1;
@@ -1452,14 +1171,14 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           item.bib,
           item.name,
           item.team,
-          item.startTimeStr || (item.localTime ? formatLocalClockTime(item.start) : formatClockTime(item.start)),
+          item.startTimeStr || formatClockTime(item.start),
           item.finish
-            ? (item.localTime ? formatLocalClockTime(item.finish) : formatClockTime(item.finish))
+            ? formatClockTime(item.finish)
             : "",
           isDnf ? "NOT FINISHED" : formatTime(item.elapsed),
           isDnf ? "" : item.elapsed - fastestTime,
           isDnf ? "RACE FAILED" : "OK / FINISH",
-          simulatedResults.includes(item) ? "SIMULASI LOKAL" : "FINISH DEVICE"
+          "FINISH DEVICE"
         ]);
       });
       const csvContent = rows.map(row => row.map(csvEscape).join(',')).join('\r\n');
@@ -1583,7 +1302,6 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     setInterval(fetchLeaderboard, 1000);
     setInterval(fetchRunHistory, 1000);
     setInterval(fetchRegisteredRiders, 5000);
-    updateSimulationControls();
     updateExportButton();
     fetchStatus();
     fetchLeaderboard();
