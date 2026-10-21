@@ -295,8 +295,89 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       border: 1px solid #334155;
     }
     .btn-secondary:hover { background: #334155; }
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+    .sim-panel, .roster-panel {
+      background: #101827;
+      border: 1px dashed #334155;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+    .sim-heading, .roster-heading {
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+    .sim-note {
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      line-height: 1.45;
+      margin-bottom: 10px;
+    }
+    .sim-form, .sim-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .sim-form input {
+      min-width: 140px;
+      flex: 1;
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 9px 10px;
+      color: var(--text);
+    }
+    .sim-roster {
+      display: grid;
+      gap: 6px;
+      list-style: none;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    .sim-roster li {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: #cbd5e1;
+      font-size: 0.8rem;
+    }
+    .sim-roster-status { color: var(--text-muted); }
+    .confirm-dialog {
+      width: min(440px, calc(100% - 32px));
+      margin: auto;
+      padding: 20px;
+      color: var(--text);
+      background: #111827;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+    }
+    .confirm-dialog::backdrop { background: rgba(0, 0, 0, 0.75); }
+    .confirm-dialog p {
+      margin: 10px 0 14px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .confirm-error {
+      min-height: 1.2em;
+      margin-top: 6px;
+      color: var(--red);
+      font-size: 0.8rem;
+    }
+    .confirm-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 14px;
+    }
 
-    /* NEXT RIDER & QUEUE */
+    /* NEXT RIDER & RUN HISTORY */
     .next-rider-text {
       font-size: 0.95rem;
       font-weight: 600;
@@ -490,13 +571,16 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       </div>
       <div class="header-right">
         <div class="track-indicator">
-          TRACK: <span id="track-name">SECTOR 1</span>
+          EVENT: <span id="track-name">Bicycle Race Championship</span>
         </div>
         <div class="status-pill">
           <span class="status-dot" id="system-dot"></span>
           <span id="system-status-text">ESP32 Online (Live Telemetry)</span>
         </div>
-        <div class="header-clock" id="live-clock">--:--:--</div>
+        <button class="btn btn-secondary" id="simulation-mode-toggle" type="button" onclick="toggleSimulationMode()">
+          Mode Simulasi Lokal
+        </button>
+        <div class="header-clock" id="live-clock" title="Waktu lokal browser, bukan waktu GPS perangkat">--:--:--</div>
       </div>
     </header>
 
@@ -540,17 +624,46 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
             <span class="card-title">NEXT RIDER</span>
           </div>
           <div class="next-rider-text" id="next-rider-text">
-            Belum ada rider dalam antrean
+            Antrean peserta belum tersedia di firmware Finish.
           </div>
         </div>
 
-        <!-- CARD 3: DAFTAR RIDER (QUEUE / HISTORY) -->
+        <!-- CARD 3: RECENT FINISHES -->
         <div class="card">
           <div class="card-head">
-            <span class="card-title">DAFTAR RIDER</span>
+            <span class="card-title">RIWAYAT FINISH TERBARU</span>
           </div>
           <div class="queue-list" id="queue-list-container">
-            <div style="font-size:0.8rem; color:var(--text-dim);">Belum ada riwayat rider</div>
+            <div style="font-size:0.8rem; color:var(--text-dim);">Belum ada peserta yang finish</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">ANTREAN &amp; SIMULATOR MANUAL</span>
+          </div>
+          <div class="sim-note">
+            Simulasi hanya tersimpan selama halaman ini terbuka; tidak mengirim start/DNF ke ESP32 atau menyimpan ke SPIFFS.
+            Ekspor CSV sebelum menutup atau memuat ulang halaman. Aktifkan mode simulasi lokal terlebih dahulu.
+          </div>
+          <form class="sim-form" id="sim-rider-form">
+            <input id="sim-rider-name" type="text" maxlength="80" placeholder="Nama rider" aria-label="Nama rider simulasi" required disabled>
+            <button class="btn btn-secondary" type="submit" disabled>Tambah Rider</button>
+          </form>
+          <div class="roster-panel">
+            <div class="roster-heading">Daftar Rider Simulasi</div>
+            <ul class="sim-roster" id="sim-roster-list">
+              <li><span>Belum ada rider simulasi.</span></li>
+            </ul>
+          </div>
+          <div class="sim-panel">
+            <div class="sim-heading" style="width:100%">Simulator Controls</div>
+            <div class="sim-controls">
+              <button class="btn btn-secondary" id="sim-start-button" type="button" style="display:none" disabled>Simulasi Start Rider</button>
+              <button class="btn btn-secondary" id="sim-finish-button" type="button" disabled>Trigger Finish Radar</button>
+              <button class="btn btn-secondary" id="sim-dnf-button" type="button" disabled>Not Finished (DNF)</button>
+              <button class="btn btn-secondary" id="sim-clear-button" type="button">Clear Simulation</button>
+            </div>
           </div>
         </div>
       </section>
@@ -559,8 +672,8 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       <section>
         <div class="card">
           <div class="card-head">
-            <span class="card-title">OFFICIAL RACE LEADERBOARD (FASTEST TIME)</span>
-            <span class="leaderboard-stats" id="leaderboard-stats">0 FINISHER, 0 DNF</span>
+            <span class="card-title" id="leaderboard-title">OFFICIAL RACE LEADERBOARD (FASTEST TIME)</span>
+            <span class="leaderboard-stats" id="leaderboard-stats">0 FINISHER</span>
           </div>
 
           <div class="table-container">
@@ -588,11 +701,11 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
           </div>
 
           <div class="leaderboard-footer">
-            <button class="btn btn-secondary" onclick="exportCSV()">
+            <button class="btn btn-secondary" id="export-csv-button" onclick="exportCSV()" disabled>
               📥 Export CSV
             </button>
             <button class="btn btn-secondary" onclick="openTrackModal()">
-              ⚙️ Track Config
+              ⚙️ Nama Event
             </button>
             <button class="btn btn-secondary" onclick="clearAllData()">
               🗑️ Reset Data
@@ -603,16 +716,16 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     </main>
   </div>
 
-  <!-- MODAL EDIT TRACK / EVENT -->
+  <!-- MODAL EDIT EVENT NAME -->
   <div class="modal-backdrop" id="track-modal">
     <div class="modal-box">
       <div class="modal-head">
-        <div class="modal-title">Konfigurasi Track &amp; Event</div>
+        <div class="modal-title">Konfigurasi Nama Event</div>
         <button class="btn btn-secondary" onclick="closeTrackModal()" style="padding:4px 8px;">✕</button>
       </div>
       <div class="form-group">
-        <label>Nama Track / Sektor</label>
-        <input type="text" id="input-track-name" placeholder="Misal: SECTOR 1 / DOWNHILL TRACK">
+        <label>Nama Event</label>
+        <input type="text" id="input-track-name" maxlength="63" placeholder="Misal: Kejuaraan Downhill">
       </div>
       <div style="display:flex; justify-content:flex-end; gap:8px;">
         <button class="btn btn-secondary" onclick="closeTrackModal()">Batal</button>
@@ -621,12 +734,32 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     </div>
   </div>
 
+  <dialog class="confirm-dialog" id="sim-clear-dialog" aria-labelledby="sim-clear-title">
+    <form id="sim-clear-form">
+      <h2 id="sim-clear-title">Hapus data simulasi?</h2>
+      <p>Daftar rider dan hasil simulasi lokal akan dihapus. Data perangkat tidak terpengaruh. Ketik HAPUS untuk melanjutkan.</p>
+      <input id="sim-clear-confirmation" type="text" autocomplete="off" placeholder="Ketik HAPUS" aria-label="Ketik HAPUS untuk konfirmasi">
+      <div class="confirm-error" id="sim-clear-error" aria-live="polite"></div>
+      <div class="confirm-actions">
+        <button class="btn btn-secondary" id="sim-clear-cancel" type="button">Batal</button>
+        <button class="btn btn-cancel" type="submit">Hapus Simulasi</button>
+      </div>
+    </form>
+  </dialog>
+
   <script>
     let raceActive = false;
     let raceStartLocalMs = 0;
     let raceElapsedServer = 0;
-    let timerInterval = null;
-    let bestLeaderMs = 0;
+    let simulationMode = false;
+    let simulatedParticipants = [];
+    let simulatedResults = [];
+    let currentSimulatedRider = null;
+    let simulatedStartTime = 0;
+    let simulatedTimer = null;
+    let nextSimulatedBib = 101;
+    let deviceLeaderboard = [];
+    let deviceRuns = [];
 
     // Format millisecond duration: mm:ss.mmm
     function formatTime(ms) {
@@ -639,6 +772,17 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
         String(minutes).padStart(2, '0') + ":" +
         String(seconds).padStart(2, '0') + "." +
         String(millis).padStart(3, '0')
+      );
+    }
+
+    function formatLocalClockTime(ms) {
+      if (!ms || ms === 0) return "--:--:--.---";
+      const date = new Date(ms);
+      return (
+        String(date.getHours()).padStart(2, '0') + ":" +
+        String(date.getMinutes()).padStart(2, '0') + ":" +
+        String(date.getSeconds()).padStart(2, '0') + "." +
+        String(date.getMilliseconds()).padStart(3, '0')
       );
     }
 
@@ -658,7 +802,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
       );
     }
 
-    // Live Clock (System Clock)
+    // This clock reflects the browser's local time, not GPS time from the firmware.
     function updateClock() {
       const now = new Date();
       const h = String(now.getHours()).padStart(2, '0');
@@ -671,7 +815,7 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 
     // High frequency live timer runner (60fps)
     function runLiveTimer() {
-      if (!raceActive) return;
+      if (!raceActive || simulationMode) return;
       const now = performance.now();
       const currentElapsed = Math.floor(raceElapsedServer + (now - raceStartLocalMs));
       document.getElementById('active-timer').textContent = formatTime(currentElapsed);
@@ -681,38 +825,46 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     // Fetch Active Race Status
     async function fetchStatus() {
       try {
-        const res = await fetch('/api/status');
+        const res = await fetch('/api/state');
         if (!res.ok) throw new Error("HTTP error");
         const data = await res.json();
 
-        // Update Online Indicator
         document.getElementById('system-dot').className = "status-dot";
-        document.getElementById('system-status-text').textContent = "ESP32 Online (Live Telemetry)";
+        const gpsStatus = data.gpsReady
+          ? `GPS ${data.satellites} satelit`
+          : "GPS belum siap";
+        const loraStatus = data.loraReady ? "LoRa siap" : "LoRa tidak siap";
+        const startStatus = data.startDeviceOnline ? "Start online" : "Start offline";
+        document.getElementById('system-status-text').textContent = simulationMode
+          ? `SIMULASI LOKAL · ESP32 Online · ${gpsStatus} · ${loraStatus} · ${startStatus}`
+          : `ESP32 Online · ${gpsStatus} · ${loraStatus} · ${startStatus}`;
 
         if (data.eventName && data.eventName.length > 0) {
           document.getElementById('track-name').textContent = data.eventName;
         }
 
+        if (simulationMode) return;
+
         // Active Rider handling
         const badge = document.getElementById('rider-status-badge');
         const actions = document.getElementById('action-buttons');
+        document.getElementById('next-rider-text').textContent =
+          "Antrean peserta belum tersedia dari firmware.";
 
-        if (data.active) {
+        if (data.raceActive) {
           if (!raceActive) {
             raceActive = true;
-            raceStartLocalMs = performance.now();
-            raceElapsedServer = data.elapsed || 0;
             requestAnimationFrame(runLiveTimer);
-          } else {
-            raceElapsedServer = data.elapsed || 0;
           }
+          raceStartLocalMs = performance.now();
+          raceElapsedServer = data.elapsed || 0;
 
           badge.className = "status-badge badge-on-track";
           badge.textContent = "ON TRACK";
 
-          document.getElementById('active-bib').textContent = "#" + (data.bib || "--");
-          document.getElementById('active-name').textContent = data.name || "Peserta";
-          document.getElementById('active-cat').textContent = data.team || "Men Elite Downhill";
+          document.getElementById('active-bib').textContent = "#" + (data.currentBib || "--");
+          document.getElementById('active-name').textContent = data.currentName || "Peserta";
+          document.getElementById('active-cat').textContent = data.currentTeam || "Men Elite Downhill";
           actions.style.display = "flex";
 
         } else {
@@ -738,7 +890,9 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 
       } catch (err) {
         document.getElementById('system-dot').className = "status-dot offline";
-        document.getElementById('system-status-text').textContent = "ESP32 Offline (Reconnecting...)";
+        document.getElementById('system-status-text').textContent = simulationMode
+          ? "SIMULASI LOKAL · ESP32 offline"
+          : "ESP32 Offline (Reconnecting...)";
       }
     }
 
@@ -746,107 +900,370 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     async function fetchLeaderboard() {
       try {
         const res = await fetch('/api/leaderboard');
-        if (!res.ok) return;
-        const list = await res.json();
+        if (!res.ok) throw new Error("HTTP error");
+        deviceLeaderboard = await res.json();
+        renderLeaderboard(simulationMode
+          ? [...deviceLeaderboard, ...simulatedResults]
+          : deviceLeaderboard);
+      } catch (err) {
+        console.error(err);
+      }
+    }
 
-        const tbody = document.getElementById('leaderboard-tbody');
-        const queueContainer = document.getElementById('queue-list-container');
+    function renderLeaderboard(list) {
+      const tbody = document.getElementById('leaderboard-tbody');
 
-        if (!list || list.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 30px; color: var(--text-dim);">Belum ada data finish peserta. Balapan belum dimulai.</td></tr>';
-          document.getElementById('leaderboard-stats').textContent = "0 FINISHER, 0 DNF";
-          queueContainer.innerHTML = '<div style="font-size:0.8rem; color:var(--text-dim);">Belum ada riwayat rider</div>';
-          return;
-        }
+      const sorted = [...(list || [])].sort((a, b) => {
+        if (!a.completed) return b.completed ? 1 : 0;
+        if (!b.completed) return -1;
+        return a.elapsed - b.elapsed;
+      });
 
-        let finishers = 0;
-        let dnf = 0;
-        let fastestTime = 0;
+      if (!sorted.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 30px; color: var(--text-dim);">Belum ada data finish peserta. Balapan belum dimulai.</td></tr>';
+        document.getElementById('leaderboard-stats').textContent = "0 FINISHER, 0 DNF";
+        updateExportButton();
+        return;
+      }
 
-        let tableHtml = "";
-        let queueHtml = "";
+      const finishers = sorted.filter(item => item.completed);
+      const fastestTime = finishers.length ? finishers[0].elapsed : 0;
+      let finishRank = 0;
+      const tableHtml = sorted.map(item => {
+        const isDnf = !item.completed;
+        const rank = isDnf ? null : ++finishRank;
+        const posText = isDnf ? "DNF" : `#${rank}`;
+        const posClass = isDnf ? "pos-nf" : rank === 1 ? "pos-gold" : rank === 2 ? "pos-silver" : rank === 3 ? "pos-bronze" : "pos-other";
+        const startTimeStr = item.localTime
+          ? formatLocalClockTime(item.start)
+          : item.start ? formatClockTime(item.start) : (item.startTimeStr || "--:--:--");
+        const endTimeStr = item.finish
+          ? (item.localTime ? formatLocalClockTime(item.finish) : formatClockTime(item.finish))
+          : "--";
+        const gapText = isDnf ? "--" : rank === 1 ? "LEADER" : "+" + formatTime(item.elapsed - fastestTime);
 
-        list.forEach((item, index) => {
-          if (item.completed && item.elapsed > 0) {
-            finishers++;
-            if (finishers === 1) fastestTime = item.elapsed;
-          } else {
-            dnf++;
-          }
-
-          // Rank Badge
-          let posText = "";
-          let posClass = "pos-other";
-          if (index === 0) { posText = "#1"; posClass = "pos-gold"; }
-          else if (index === 1) { posText = "#2"; posClass = "pos-silver"; }
-          else if (index === 2) { posText = "#3"; posClass = "pos-bronze"; }
-          else { posText = "#" + (index + 1); posClass = "pos-other"; }
-
-          // Format timestamps
-          const startTimeStr = item.start ? formatClockTime(item.start) : (item.startTimeStr || "--:--:--");
-          const endTimeStr = item.finish ? formatClockTime(item.finish) : "--";
-
-          // Calculate Gap
-          let gapText = "--";
-          if (index === 0) {
-            gapText = "LEADER";
-          } else if (item.elapsed > 0 && fastestTime > 0) {
-            const diff = item.elapsed - fastestTime;
-            gapText = "+" + formatTime(diff);
-          }
-
-          const durationText = item.completed ? formatTime(item.elapsed) : "NOT FINISHED";
-          const statusText = item.completed ? "OK / FINISH" : "RACE FAILED";
-          const statusClass = item.completed ? "status-cell ok" : "status-cell failed";
-          const durClass = item.completed ? "duration-cell" : "duration-cell nf";
-
-          tableHtml += `
+        return `
             <tr>
               <td><span class="${posClass}">${posText}</span></td>
               <td class="bib-cell">#${escapeHtml(item.bib)}</td>
               <td class="name-cell">${escapeHtml(item.name)}</td>
               <td class="time-mono">${startTimeStr}</td>
               <td class="time-mono">${endTimeStr}</td>
-              <td class="${durClass}">${durationText}</td>
+              <td class="duration-cell ${isDnf ? 'nf' : ''}">${isDnf ? 'NOT FINISHED' : formatTime(item.elapsed)}</td>
               <td class="gap-cell">${gapText}</td>
-              <td class="${statusClass}">${statusText}</td>
+              <td class="status-cell ${isDnf ? 'failed' : 'ok'}">${item.localTime
+                ? (isDnf ? 'SIM DNF' : 'SIM FINISH')
+                : (isDnf ? 'RACE FAILED' : 'FINISH')}</td>
             </tr>
           `;
+        }).join("");
 
-          // Add to Queue List (max 6 latest)
-          if (index < 6) {
-            queueHtml += `
-              <div class="queue-item">
-                <span class="queue-name">#${escapeHtml(item.bib)} - ${escapeHtml(item.name)}</span>
-                <span class="${item.completed ? 'queue-status-ok' : 'queue-status-dnf'}">${item.completed ? 'Selesai' : 'Tidak finish'}</span>
-              </div>
-            `;
-          }
-        });
+      tbody.innerHTML = tableHtml;
+      document.getElementById('leaderboard-stats').textContent =
+        `${finishers.length} FINISHER, ${sorted.length - finishers.length} DNF`;
+      updateExportButton();
+    }
 
-        tbody.innerHTML = tableHtml;
-        queueContainer.innerHTML = queueHtml;
-        document.getElementById('leaderboard-stats').textContent = `${finishers} FINISHER, ${dnf} DNF`;
-
+    async function fetchRunHistory() {
+      try {
+        const res = await fetch('/api/runs');
+        if (!res.ok) throw new Error("HTTP error");
+        deviceRuns = await res.json();
+        renderRunHistory();
       } catch (err) {
         console.error(err);
       }
+    }
+
+    function renderRunHistory() {
+        const queueContainer = document.getElementById('queue-list-container');
+        const runs = simulationMode
+          ? [...deviceRuns, ...simulatedResults].sort((a, b) => (b.finish || 0) - (a.finish || 0))
+          : deviceRuns;
+
+        if (!runs || runs.length === 0) {
+          queueContainer.innerHTML = '<div style="font-size:0.8rem; color:var(--text-dim);">Belum ada peserta yang finish</div>';
+          return;
+        }
+
+        queueContainer.innerHTML = runs.slice(0, 6).map(item => `
+          <div class="queue-item">
+            <span class="queue-name">#${escapeHtml(item.bib)} - ${escapeHtml(item.name)}</span>
+            <span class="queue-status-ok">${item.completed === false ? 'DNF' : formatTime(item.elapsed)}</span>
+          </div>
+        `).join("");
+    }
+
+    function updateExportButton() {
+      const button = document.getElementById('export-csv-button');
+      button.disabled = deviceLeaderboard.length === 0 && simulatedResults.length === 0;
+    }
+
+    function toggleSimulationMode() {
+      simulationMode = !simulationMode;
+      document.getElementById('simulation-mode-toggle').textContent =
+        simulationMode ? "Kembali ke Mode Perangkat" : "Mode Simulasi Lokal";
+      document.getElementById('system-status-text').textContent = simulationMode
+        ? "SIMULASI LOKAL · data tidak dikirim ke perangkat"
+        : "Menghubungkan ke Finish Device...";
+      document.getElementById('sim-rider-name').disabled = !simulationMode;
+      document.querySelector('#sim-rider-form button').disabled = !simulationMode;
+      document.getElementById('sim-start-button').style.display =
+        simulationMode ? "inline-flex" : "none";
+      document.getElementById('leaderboard-title').textContent = simulationMode
+        ? "LEADERBOARD · PERANGKAT + SIMULASI LOKAL"
+        : "OFFICIAL RACE LEADERBOARD (FASTEST TIME)";
+
+      if (simulationMode) {
+        renderSimulationState();
+        renderLeaderboard([...deviceLeaderboard, ...simulatedResults]);
+        renderRunHistory();
+      } else {
+        clearInterval(simulatedTimer);
+        simulatedTimer = null;
+        raceActive = false;
+        fetchStatus();
+        renderLeaderboard(deviceLeaderboard);
+        renderRunHistory();
+      }
+      updateSimulationControls();
+    }
+
+    function updateSimulationControls() {
+      document.getElementById('sim-start-button').disabled =
+        !simulationMode || Boolean(currentSimulatedRider) ||
+        !simulatedParticipants.some(rider => rider.status === 'waiting');
+      document.getElementById('sim-finish-button').disabled =
+        !simulationMode || !currentSimulatedRider;
+      document.getElementById('sim-dnf-button').disabled =
+        !simulationMode || !currentSimulatedRider;
+      document.getElementById('sim-clear-button').disabled =
+        !simulationMode || (!simulatedParticipants.length && !simulatedResults.length);
+    }
+
+    function renderSimulationState() {
+      const list = document.getElementById('sim-roster-list');
+      list.replaceChildren();
+      if (!simulatedParticipants.length) {
+        const item = document.createElement('li');
+        item.textContent = "Belum ada rider simulasi.";
+        list.appendChild(item);
+      } else {
+        simulatedParticipants.forEach(rider => {
+          const item = document.createElement('li');
+          const identity = document.createElement('span');
+          const status = document.createElement('span');
+          identity.textContent = `${rider.bib} - ${rider.name}`;
+          status.className = "sim-roster-status";
+          status.textContent = rider.status === 'waiting' ? "Menunggu"
+            : rider.status === 'racing' ? "Sedang race"
+              : rider.status === 'dnf' ? "DNF" : "Selesai";
+          item.append(identity, status);
+          list.appendChild(item);
+        });
+      }
+
+      const nextRider = simulatedParticipants.find(rider => rider.status === 'waiting');
+      document.getElementById('next-rider-text').textContent = nextRider
+        ? `${nextRider.bib} - ${nextRider.name}`
+        : "Belum ada rider dalam antrean simulasi";
+
+      const badge = document.getElementById('rider-status-badge');
+      const actions = document.getElementById('action-buttons');
+      actions.style.display = "none";
+      if (currentSimulatedRider) {
+        badge.className = "status-badge badge-on-track";
+        badge.textContent = "SIMULASI";
+        document.getElementById('active-bib').textContent = currentSimulatedRider.bib;
+        document.getElementById('active-name').textContent = currentSimulatedRider.name;
+        document.getElementById('active-cat').textContent = currentSimulatedRider.team;
+        document.getElementById('active-timer').textContent =
+          formatTime(Date.now() - simulatedStartTime);
+        clearInterval(simulatedTimer);
+        simulatedTimer = setInterval(() => {
+          if (!simulationMode || !currentSimulatedRider) return;
+          document.getElementById('active-timer').textContent =
+            formatTime(Date.now() - simulatedStartTime);
+        }, 25);
+      } else {
+        clearInterval(simulatedTimer);
+        simulatedTimer = null;
+        const lastResult = simulatedResults[simulatedResults.length - 1];
+        if (lastResult) {
+          badge.className = lastResult.completed
+            ? "status-badge badge-finished"
+            : "status-badge badge-standby";
+          badge.textContent = lastResult.completed ? "SIM FINISH" : "DNF";
+          document.getElementById('active-bib').textContent = lastResult.bib;
+          document.getElementById('active-name').textContent = lastResult.name;
+          document.getElementById('active-cat').textContent = lastResult.team;
+          document.getElementById('active-timer').textContent = lastResult.completed
+            ? formatTime(lastResult.elapsed)
+            : "DNF";
+        } else {
+          badge.className = "status-badge badge-standby";
+          badge.textContent = "WAITING";
+          document.getElementById('active-bib').textContent = "#--";
+          document.getElementById('active-name').textContent = "Menunggu Start...";
+          document.getElementById('active-cat').textContent = "Men Elite Downhill";
+          document.getElementById('active-timer').textContent = "00:00.000";
+        }
+      }
+      renderLeaderboard([...deviceLeaderboard, ...simulatedResults]);
+      renderRunHistory();
+      updateSimulationControls();
+    }
+
+    document.getElementById('sim-rider-form').addEventListener('submit', event => {
+      event.preventDefault();
+      if (!simulationMode) return;
+      const input = document.getElementById('sim-rider-name');
+      const name = input.value.trim();
+      if (!name) return;
+      simulatedParticipants.push({
+        id: `sim-${Date.now()}-${nextSimulatedBib}`,
+        bib: `#${nextSimulatedBib++}`,
+        name,
+        team: "Men Elite Downhill",
+        status: "waiting"
+      });
+      input.value = "";
+      renderSimulationState();
+      input.focus();
+    });
+
+    document.getElementById('sim-start-button').addEventListener('click', () => {
+      if (!simulationMode || currentSimulatedRider) return;
+      const rider = simulatedParticipants.find(item => item.status === 'waiting');
+      if (!rider) return;
+      rider.status = "racing";
+      currentSimulatedRider = rider;
+      simulatedStartTime = Date.now();
+      renderSimulationState();
+    });
+
+    function completeSimulatedRider(completed) {
+      if (!simulationMode || !currentSimulatedRider) return;
+      const finishTime = Date.now();
+      const elapsed = finishTime - simulatedStartTime;
+      currentSimulatedRider.status = completed ? "finished" : "dnf";
+      simulatedResults.push({
+        bib: currentSimulatedRider.bib,
+        name: currentSimulatedRider.name,
+        team: currentSimulatedRider.team,
+        start: simulatedStartTime,
+        finish: completed ? finishTime : 0,
+        elapsed: completed ? elapsed : 0,
+        startTimeStr: formatLocalClockTime(simulatedStartTime),
+        date: new Date(simulatedStartTime).toISOString().slice(0, 10),
+        localTime: true,
+        completed
+      });
+      currentSimulatedRider = null;
+      renderSimulationState();
+    }
+
+    document.getElementById('sim-finish-button').addEventListener('click', () => {
+      completeSimulatedRider(true);
+    });
+    document.getElementById('sim-dnf-button').addEventListener('click', () => {
+      completeSimulatedRider(false);
+    });
+
+    document.getElementById('sim-clear-button').addEventListener('click', () => {
+      const dialog = document.getElementById('sim-clear-dialog');
+      document.getElementById('sim-clear-confirmation').value = "";
+      document.getElementById('sim-clear-error').textContent = "";
+      dialog.showModal();
+      document.getElementById('sim-clear-confirmation').focus();
+    });
+    document.getElementById('sim-clear-cancel').addEventListener('click', () => {
+      document.getElementById('sim-clear-dialog').close();
+    });
+    document.getElementById('sim-clear-form').addEventListener('submit', event => {
+      event.preventDefault();
+      const confirmation = document.getElementById('sim-clear-confirmation');
+      if (confirmation.value.trim() !== "HAPUS") {
+        document.getElementById('sim-clear-error').textContent =
+          "Konfirmasi tidak cocok. Ketik HAPUS persis untuk melanjutkan.";
+        confirmation.focus();
+        return;
+      }
+      simulatedParticipants = [];
+      simulatedResults = [];
+      currentSimulatedRider = null;
+      nextSimulatedBib = 101;
+      clearInterval(simulatedTimer);
+      simulatedTimer = null;
+      document.getElementById('sim-clear-dialog').close();
+      renderSimulationState();
+    });
+
+    function csvEscape(value) {
+      return `"${String(value ?? '').replace(/"/g, '""')}"`;
+    }
+
+    function exportCSV() {
+      const rowsToExport = [...deviceLeaderboard, ...simulatedResults]
+        .sort((a, b) => {
+          if (!a.completed) return b.completed ? 1 : 0;
+          if (!b.completed) return -1;
+          return a.elapsed - b.elapsed;
+        });
+      if (!rowsToExport.length) return;
+
+      const finishers = rowsToExport.filter(item => item.completed);
+      const fastestTime = finishers.length ? finishers[0].elapsed : 0;
+      let rank = 0;
+      const rows = [[
+        'Position', 'Bib', 'Name', 'Team', 'Start Time', 'Finish Time',
+        'Elapsed', 'Gap (ms)', 'Status', 'Source'
+      ]];
+      rowsToExport.forEach(item => {
+        const isDnf = !item.completed;
+        const itemRank = isDnf ? "DNF" : ++rank;
+        rows.push([
+          itemRank,
+          item.bib,
+          item.name,
+          item.team,
+          item.startTimeStr || (item.localTime ? formatLocalClockTime(item.start) : formatClockTime(item.start)),
+          item.finish
+            ? (item.localTime ? formatLocalClockTime(item.finish) : formatClockTime(item.finish))
+            : "",
+          isDnf ? "NOT FINISHED" : formatTime(item.elapsed),
+          isDnf ? "" : item.elapsed - fastestTime,
+          isDnf ? "RACE FAILED" : "OK / FINISH",
+          simulatedResults.includes(item) ? "SIMULASI LOKAL" : "FINISH DEVICE"
+        ]);
+      });
+      const csvContent = rows.map(row => row.map(csvEscape).join(',')).join('\r\n');
+      const blob = new Blob(["\uFEFF", csvContent], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `downhill_results_${Date.now()}.csv`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     // Actions
     async function manualFinishTrigger() {
       if (!confirm("Konfirmasi finish manual untuk peserta ini?")) return;
       try {
-        await fetch('/api/manual-finish', { method: 'POST' });
+        const res = await fetch('/api/manual-finish', { method: 'POST' });
+        if (!res.ok) throw new Error("HTTP error");
         fetchStatus();
         fetchLeaderboard();
+        fetchRunHistory();
       } catch (e) { alert("Gagal memicu finish"); }
     }
 
     async function resetActiveRace() {
       if (!confirm("Batalkan balapan aktif peserta ini?")) return;
       try {
-        await fetch('/api/reset-race', { method: 'POST' });
+        const res = await fetch('/api/reset-race', { method: 'POST' });
+        if (!res.ok) throw new Error("HTTP error");
         fetchStatus();
       } catch (e) { alert("Gagal mereset balapan"); }
     }
@@ -854,14 +1271,12 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     async function clearAllData() {
       if (!confirm("PERINGATAN: Hapus seluruh data leaderboard dan riwayat balap?")) return;
       try {
-        await fetch('/api/clear-all', { method: 'POST' });
+        const res = await fetch('/api/clear-all', { method: 'POST' });
+        if (!res.ok) throw new Error("HTTP error");
         fetchStatus();
         fetchLeaderboard();
+        fetchRunHistory();
       } catch (e) { alert("Gagal menghapus data"); }
-    }
-
-    function exportCSV() {
-      window.location.href = '/api/export-csv';
     }
 
     // Modal Track Config
@@ -875,15 +1290,20 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     async function saveTrackConfig() {
       const val = document.getElementById('input-track-name').value.trim();
       if (!val) return;
+      if (new TextEncoder().encode(val).length > 63) {
+        alert("Nama event maksimal 63 byte.");
+        return;
+      }
       try {
-        await fetch('/api/set-event', {
+        const res = await fetch('/api/set-event', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: val })
         });
+        if (!res.ok) throw new Error("HTTP error");
         document.getElementById('track-name').textContent = val;
         closeTrackModal();
-      } catch (e) { alert("Gagal menyimpan nama track"); }
+      } catch (e) { alert("Gagal menyimpan nama event"); }
     }
 
     function escapeHtml(str) {
@@ -897,8 +1317,12 @@ const char FINISH_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
     // Initial Poll Loops
     setInterval(fetchStatus, 300);
     setInterval(fetchLeaderboard, 1000);
+    setInterval(fetchRunHistory, 1000);
+    updateSimulationControls();
+    updateExportButton();
     fetchStatus();
     fetchLeaderboard();
+    fetchRunHistory();
   </script>
 </body>
 </html>
